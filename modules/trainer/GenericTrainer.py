@@ -586,6 +586,9 @@ class GenericTrainer(BaseTrainer):
         lr_scheduler = None
         accumulated_loss = 0.0
         ema_loss = None
+        ema_gradient = None
+        total_norm = None
+        self.config.use_ema_gradient_clipping = None
         for _epoch in tqdm(range(train_progress.epoch, self.config.epochs, 1), desc="epoch"):
             self.callbacks.on_update_status("starting epoch/caching")
 
@@ -673,17 +676,44 @@ class GenericTrainer(BaseTrainer):
                         elif scaler:
                             scaler.unscale_(self.model.optimizer)
                             if self.config.clip_grad_norm is not None:
-                                nn.utils.clip_grad_norm_(self.parameters, self.config.clip_grad_norm)
+                                if self.config.use_ema_gradient_clipping:
+                                    # Clip gradients using prior EMA, if it exists
+                                    if ema_gradient is not None:
+                                        clip_value = self.config.clip_grad_norm * ema_gradient
+                                        nn.utils.clip_grad_norm_(self.parameters, clip_value)
+                                else:
+                                    nn.utils.clip_grad_norm_(self.parameters, self.config.clip_grad_norm)
                             scaler.step(self.model.optimizer)
                             scaler.update()
                         else:
                             if self.config.clip_grad_norm is not None:
-                                nn.utils.clip_grad_norm_(self.parameters, self.config.clip_grad_norm)
+                                if self.config.use_ema_gradient_clipping:
+                                    # Clip gradients using prior EMA, if it exists
+                                    if ema_gradient is not None:
+                                        clip_value = self.config.clip_grad_norm * ema_gradient
+                                        nn.utils.clip_grad_norm_(self.parameters, clip_value)
+
+                                else:
+                                    nn.utils.clip_grad_norm_(self.parameters, self.config.clip_grad_norm)
                             self.model.optimizer.step()
+
+                            # Calculate the current gradient norm
+                            total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2) for p in self.parameters if p.grad is not None]), 2).item()
+
+                            # Initialize or update EMA of gradient norms
+                            if ema_gradient is None:
+                                ema_gradient = total_norm  # Initialize EMA with the first calculated total norm
+                            else:
+                                ema_gradient = (ema_gradient * 0.99) + (total_norm * 0.01)
 
                         lr_scheduler.step()  # done before zero_grad, because some lr schedulers need gradients
                         self.model.optimizer.zero_grad(set_to_none=True)
                         has_gradient = False
+
+                        # Log gradient sizes to TensorBoard
+                        self.tensorboard.add_scalar("gradient_size", total_norm, train_progress.global_step)
+                        if self.config.use_ema_gradient_clipping and ema_gradient is not None:
+                            self.tensorboard.add_scalar("gradient_ema_size", ema_gradient, train_progress.global_step)
 
                         self.model_setup.report_to_tensorboard(
                             self.model, self.config, lr_scheduler, self.tensorboard
@@ -691,12 +721,12 @@ class GenericTrainer(BaseTrainer):
 
                         self.tensorboard.add_scalar("loss/train_step", accumulated_loss, train_progress.global_step)
                         ema_loss = ema_loss or accumulated_loss
-                        ema_loss = (ema_loss * 0.99) + (accumulated_loss * 0.01)
+                        ema_loss = (ema_loss * 0.95) + (accumulated_loss * 0.05)
                         step_tqdm.set_postfix({
                             'loss': accumulated_loss,
                             'smooth loss': ema_loss,
                         })
-                        self.tensorboard.add_scalar("smooth_loss/train_step", ema_loss, train_progress.global_step)
+                        self.tensorboard.add_scalar("loss-EMA/train_step", ema_loss, train_progress.global_step)
                         accumulated_loss = 0.0
 
                         self.model_setup.after_optimizer_step(self.model, self.config, train_progress)

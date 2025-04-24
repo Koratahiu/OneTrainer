@@ -134,7 +134,7 @@ class Prodigy8bit(torch.optim.Optimizer):
     def _should_quantize_param(grad_shape: torch.Size, min_8bit_size: int):
         # We want to quantize blocks that have larger than `min_8bit_size`, but
         # only if they are `linear` or `1x1 convolution` layers.
-        if Prodigy._should_use_matrix_factorization(grad_shape):
+        if Prodigy8bit._should_use_matrix_factorization(grad_shape):
             return grad_shape.numel() > min_8bit_size
         return False
 
@@ -244,7 +244,7 @@ class Prodigy8bit(torch.optim.Optimizer):
         state = self.state[p]
 
         # Check if we should quantize this parameter
-        should_quantize_param = Prodigy._should_quantize_param(grad.shape, group['min_8bit_size'])
+        should_quantize_param = Prodigy8bit._should_quantize_param(grad.shape, group['min_8bit_size'])
 
         # State initialization
         if 'step' not in state:
@@ -258,11 +258,11 @@ class Prodigy8bit(torch.optim.Optimizer):
             # Exponential moving average of gradient values
             if self.beta1 > 0:
                 state['exp_avg'] = torch.zeros_like(p.data).detach() if not should_quantize_param else \
-                                  Prodigy._quantize_param(torch.zeros_like(p.data), group['quant_block_size'])
+                                  Prodigy8bit._quantize_param(torch.zeros_like(p.data), group['quant_block_size'])
             # Exponential moving average of squared gradient values
             if not self.factored or len(p.shape) < 2:
                 state['exp_avg_sq'] = torch.zeros_like(p.data).detach() if not should_quantize_param else \
-                                      Prodigy._quantize_param(torch.zeros_like(p.data), group['quant_block_size'])
+                                      Prodigy8bit._quantize_param(torch.zeros_like(p.data), group['quant_block_size'])
             else:
                 state["exp_avg_sq_row"] = torch.zeros(p.shape[:-1]).to(grad)
                 state["exp_avg_sq_col"] = torch.zeros(p.shape[:-2] + p.shape[-1:]).to(grad)
@@ -278,17 +278,17 @@ class Prodigy8bit(torch.optim.Optimizer):
             # Adam EMA updates
             if self.beta1 > 0:
                 exp_avg = state['exp_avg'] if not should_quantize_param else \
-                          Prodigy._dequantize_param(state['exp_avg'])
+                          Prodigy8bit._dequantize_param(state['exp_avg'])
                 exp_avg.mul_(self.beta1).add_(grad, alpha=self.d * (1-self.beta1))
                 state['exp_avg'] = exp_avg if not should_quantize_param else \
-                                   Prodigy._quantize_param(exp_avg, group['quant_block_size'])
+                                   Prodigy8bit._quantize_param(exp_avg, group['quant_block_size'])
 
             if not self.factored or len(p.shape) < 2:
                 exp_avg_sq = state['exp_avg_sq'] if not should_quantize_param else \
-                             Prodigy._dequantize_param(state['exp_avg_sq'])
+                             Prodigy8bit._dequantize_param(state['exp_avg_sq'])
                 exp_avg_sq.mul_(self.beta2).addcmul_(grad, grad, value=self.d * self.d * (1-self.beta2))
                 state['exp_avg_sq'] = exp_avg_sq if not should_quantize_param else \
-                                      Prodigy._quantize_param(exp_avg_sq, group['quant_block_size'])
+                                      Prodigy8bit._quantize_param(exp_avg_sq, group['quant_block_size'])
             else:
                 exp_avg_sq_row = state["exp_avg_sq_row"]
                 exp_avg_sq_col = state["exp_avg_sq_col"]
@@ -308,7 +308,7 @@ class Prodigy8bit(torch.optim.Optimizer):
         # Prepare denominator
         if not self.factored or len(p.shape) < 2:
             exp_avg_sq = state['exp_avg_sq'] if not should_quantize_param else \
-                         Prodigy._dequantize_param(state['exp_avg_sq'])
+                         Prodigy8bit._dequantize_param(state['exp_avg_sq'])
             denom = exp_avg_sq.sqrt().add_(self.d * eps)
         else:
             denom = self._approx_sqrt(state["exp_avg_sq_row"], state["exp_avg_sq_col"]).add_(self.d * eps)
@@ -324,7 +324,7 @@ class Prodigy8bit(torch.optim.Optimizer):
         if self.clip_threshold is None:
             if self.beta1 > 0:
                 exp_avg = state['exp_avg'] if not should_quantize_param else \
-                          Prodigy._dequantize_param(state['exp_avg'])
+                          Prodigy8bit._dequantize_param(state['exp_avg'])
                 if p.dtype == torch.bfloat16 and stochastic_rounding:
                     update = exp_avg / denom
                     add_stochastic_(p.data, -update, alpha=self.dlr)
@@ -339,7 +339,7 @@ class Prodigy8bit(torch.optim.Optimizer):
         else:
             if self.beta1 > 0:
                 exp_avg = state['exp_avg'] if not should_quantize_param else \
-                          Prodigy._dequantize_param(state['exp_avg'])
+                          Prodigy8bit._dequantize_param(state['exp_avg'])
                 update = exp_avg.div(denom)
             else:
                 update = grad.div(denom).mul_(self.d)

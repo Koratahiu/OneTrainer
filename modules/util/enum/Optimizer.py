@@ -53,6 +53,7 @@ class Optimizer(Enum):
     # Prodigy
     PRODIGY = 'PRODIGY'
     PRODIGY_PLUS_SCHEDULE_FREE = 'PRODIGY_PLUS_SCHEDULE_FREE'
+    PRODIGY8BIT = 'PRODIGY_8bit'
 
     # ADAFACTOR
     ADAFACTOR = 'ADAFACTOR'
@@ -75,6 +76,7 @@ class Optimizer(Enum):
             self.DADAPT_ADA_GRAD,
             self.DADAPT_LION,
             self.PRODIGY,
+            self.PRODIGY8BIT,
             self.PRODIGY_PLUS_SCHEDULE_FREE,
         ]
 
@@ -92,6 +94,7 @@ class Optimizer(Enum):
             Optimizer.CAME,
             Optimizer.ADAM,
             Optimizer.ADAMW,
+            Optimizer.PRODIGY8BIT,
             Optimizer.PRODIGY_PLUS_SCHEDULE_FREE,
         ]
 

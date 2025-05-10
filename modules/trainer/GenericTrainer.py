@@ -221,7 +221,7 @@ class GenericTrainer(BaseTrainer):
 
                     sample_path = os.path.join(
                         sample_dir,
-                        f"{get_string_timestamp()}-training-sample-{train_progress.filename_string()}"
+                        f"{self.config.save_filename_prefix}{get_string_timestamp()}-training-sample-{train_progress.filename_string()}"
                     )
 
                     def on_sample_default(sampler_output: ModelSamplerOutput):
@@ -678,7 +678,9 @@ class GenericTrainer(BaseTrainer):
                             #different timesteps are used for a smaller subbatch by predict(), but the conditioning must match exactly:
                             prior_model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
                         model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
-                        model_output_data['target'][prior_pred_indices] = prior_model_output_data['predicted'][prior_pred_indices]
+                        prior_model_prediction = prior_model_output_data['predicted'][prior_pred_indices] \
+                            .to(dtype=model_output_data['target'].dtype)
+                        model_output_data['target'][prior_pred_indices] = prior_model_prediction
                     else:
                         model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
 
@@ -789,8 +791,8 @@ class GenericTrainer(BaseTrainer):
                 output_model_destination=save_path,
                 dtype=self.config.output_dtype.torch_dtype()
             )
-        elif self.model is not None:
-            self.model.to(self.temp_device)
+
+        self.model.to(self.temp_device)
 
         self.tensorboard.close()
 

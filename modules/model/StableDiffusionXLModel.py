@@ -5,16 +5,19 @@ from modules.model.BaseModel import BaseModel, BaseModelEmbedding
 from modules.model.util.clip_util import encode_clip
 from modules.module.AdditionalEmbeddingWrapper import AdditionalEmbeddingWrapper
 from modules.module.LoRAModule import LoRAModuleWrapper
-from modules.util.convert.rescale_noise_scheduler_to_zero_terminal_snr import (
-    rescale_noise_scheduler_to_zero_terminal_snr,
-)
 from modules.util.enum.DataType import DataType
 from modules.util.enum.ModelType import ModelType
 
 import torch
 from torch import Tensor
 
-from diffusers import AutoencoderKL, DDIMScheduler, DiffusionPipeline, StableDiffusionXLPipeline, UNet2DConditionModel
+from diffusers import (
+    AutoencoderKL,
+    DiffusionPipeline,
+    FlowMatchEulerDiscreteScheduler,
+    StableDiffusionXLPipeline,
+    UNet2DConditionModel,
+)
 from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPTokenizer
 
 
@@ -46,7 +49,7 @@ class StableDiffusionXLModel(BaseModel):
     # base model data
     tokenizer_1: CLIPTokenizer | None
     tokenizer_2: CLIPTokenizer | None
-    noise_scheduler: DDIMScheduler | None
+    noise_scheduler: FlowMatchEulerDiscreteScheduler | None
     text_encoder_1: CLIPTextModel | None
     text_encoder_2: CLIPTextModelWithProjection | None
     vae: AutoencoderKL | None
@@ -177,19 +180,6 @@ class StableDiffusionXLModel(BaseModel):
             scheduler=self.noise_scheduler,
         )
 
-    def force_v_prediction(self):
-        self.noise_scheduler.config.prediction_type = 'v_prediction'
-        self.sd_config['model']['params']['parameterization'] = 'v'
-        self.model_spec.prediction_type = 'v'
-
-    def force_epsilon_prediction(self):
-        self.noise_scheduler.config.prediction_type = 'epsilon'
-        self.sd_config['model']['params']['parameterization'] = 'epsilon'
-        self.model_spec.prediction_type = 'epsilon'
-
-    def rescale_noise_scheduler_to_zero_terminal_snr(self):
-        rescale_noise_scheduler_to_zero_terminal_snr(self.noise_scheduler)
-
     def add_text_encoder_1_embeddings_to_prompt(self, prompt: str) -> str:
         return self._add_embeddings_to_prompt(self.all_text_encoder_1_embeddings(), prompt)
 
@@ -293,3 +283,4 @@ class StableDiffusionXLModel(BaseModel):
     ) -> tuple[Tensor, Tensor]:
         text_encoder_output = torch.concat([text_encoder_1_output, text_encoder_2_output], dim=-1)
         return text_encoder_output, pooled_text_encoder_2_output
+    

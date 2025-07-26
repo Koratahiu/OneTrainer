@@ -47,3 +47,4 @@ class StableDiffusionXLFineTuneModelLoader(
         embedding_loader.load(model, model_names.base_model, model_names)
 
         return model
+    

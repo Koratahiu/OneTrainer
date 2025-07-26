@@ -96,14 +96,6 @@ class StableDiffusionXLFineTuneSetup(
             model.text_encoder_1.get_input_embeddings().to(dtype=config.embedding_weight_dtype.torch_dtype())
             model.text_encoder_2.get_input_embeddings().to(dtype=config.embedding_weight_dtype.torch_dtype())
 
-        if config.rescale_noise_scheduler_to_zero_terminal_snr:
-            model.rescale_noise_scheduler_to_zero_terminal_snr()
-            model.force_v_prediction()
-        elif config.force_v_prediction:
-            model.force_v_prediction()
-        elif config.force_epsilon_prediction:
-            model.force_epsilon_prediction()
-
         self._remove_added_embeddings_from_tokenizer(model.tokenizer_1)
         self._remove_added_embeddings_from_tokenizer(model.tokenizer_2)
         self._setup_embeddings(model, config)
@@ -162,3 +154,4 @@ class StableDiffusionXLFineTuneSetup(
             model.embedding_wrapper_1.normalize_embeddings()
             model.embedding_wrapper_2.normalize_embeddings()
         self.__setup_requires_grad(model, config)
+        

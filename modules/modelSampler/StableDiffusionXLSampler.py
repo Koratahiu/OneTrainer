@@ -1,9 +1,9 @@
+import copy
 import inspect
 from collections.abc import Callable
 
 from modules.model.StableDiffusionXLModel import StableDiffusionXLModel
 from modules.modelSampler.BaseModelSampler import BaseModelSampler, ModelSamplerOutput
-from modules.util import create
 from modules.util.config.SampleConfig import SampleConfig
 from modules.util.enum.AudioFormat import AudioFormat
 from modules.util.enum.FileType import FileType
@@ -60,7 +60,7 @@ class StableDiffusionXLSampler(BaseModelSampler):
             else:
                 generator.manual_seed(seed)
 
-            noise_scheduler = create.create_noise_scheduler(noise_scheduler, self.model.noise_scheduler, diffusion_steps)
+            noise_scheduler = copy.deepcopy(self.model.noise_scheduler)
             image_processor = self.pipeline.image_processor
             unet = self.pipeline.unet
             vae = self.pipeline.vae
@@ -127,7 +127,7 @@ class StableDiffusionXLSampler(BaseModelSampler):
                 generator=generator,
                 device=self.train_device,
                 dtype=self.model.train_dtype.torch_dtype(),
-            ) * noise_scheduler.init_noise_sigma
+            )
 
             added_cond_kwargs = {
                 "text_embeds": torch.concat([negative_pooled_text_encoder_2_output, pooled_text_encoder_2_output], dim=0),
@@ -143,7 +143,6 @@ class StableDiffusionXLSampler(BaseModelSampler):
             self.model.unet_to(self.train_device)
             for i, timestep in enumerate(tqdm(timesteps, desc="sampling")):
                 latent_model_input = torch.cat([latent_image] * 2)
-                latent_model_input = noise_scheduler.scale_model_input(latent_model_input, timestep)
 
                 # predict the noise residual
                 noise_pred = unet(
@@ -236,7 +235,7 @@ class StableDiffusionXLSampler(BaseModelSampler):
             else:
                 generator.manual_seed(seed)
 
-            noise_scheduler = create.create_noise_scheduler(noise_scheduler, self.model.noise_scheduler, diffusion_steps)
+            noise_scheduler = copy.deepcopy(self.model.noise_scheduler)
             image_processor = self.pipeline.image_processor
             unet = self.pipeline.unet
             vae = self.pipeline.vae
@@ -370,10 +369,16 @@ class StableDiffusionXLSampler(BaseModelSampler):
             if sample_inpainting:
                 # SDXL inpainting is terrible at reconstructing from pure noise.
                 # This removes the last timestep to let the model know about the general image composition and brightness
+                init_timestep = timesteps[0]
                 timesteps = timesteps[1:]
-                latent_image = noise_scheduler.add_noise(latent_conditioning_image, latent_image, timesteps[:1])
-            else:
-                latent_image = latent_image * noise_scheduler.init_noise_sigma
+
+                sigma = noise_scheduler.sigmas[init_timestep.item()].to(
+                    device=latent_conditioning_image.device,
+                    dtype=latent_conditioning_image.dtype,
+                )
+                while len(sigma.shape) < len(latent_conditioning_image.shape):
+                    sigma = sigma.unsqueeze(-1)
+                latent_image = (1.0 - sigma) * latent_conditioning_image + sigma * latent_image
 
             added_cond_kwargs = {
                 "text_embeds": torch.concat([negative_pooled_text_encoder_2_output, pooled_text_encoder_2_output], dim=0),
@@ -388,9 +393,8 @@ class StableDiffusionXLSampler(BaseModelSampler):
             # denoising loop
             self.model.unet_to(self.train_device)
             for i, timestep in enumerate(tqdm(timesteps, desc="sampling")):
-                latent_model_input = noise_scheduler.scale_model_input(latent_image, timestep)
                 latent_model_input = torch.concat(
-                    [latent_model_input, latent_mask, latent_conditioning_image], 1
+                    [latent_image, latent_mask, latent_conditioning_image], 1
                 )
                 latent_model_input = torch.cat([latent_model_input] * 2)
 
@@ -497,3 +501,4 @@ class StableDiffusionXLSampler(BaseModelSampler):
         )
 
         on_sample(sampler_output)
+        

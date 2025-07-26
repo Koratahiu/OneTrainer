@@ -4,15 +4,13 @@ import traceback
 from modules.model.StableDiffusionXLModel import StableDiffusionXLModel
 from modules.modelLoader.mixin.HFModelLoaderMixin import HFModelLoaderMixin
 from modules.modelLoader.mixin.SDConfigModelLoaderMixin import SDConfigModelLoaderMixin
-from modules.util import create
 from modules.util.enum.ModelType import ModelType
-from modules.util.enum.NoiseScheduler import NoiseScheduler
 from modules.util.ModelNames import ModelNames
 from modules.util.ModelWeightDtypes import ModelWeightDtypes
 
 from diffusers import (
     AutoencoderKL,
-    DDIMScheduler,
+    FlowMatchEulerDiscreteScheduler,
     StableDiffusionXLInpaintPipeline,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
@@ -70,13 +68,9 @@ class StableDiffusionXLModelLoader(
             subfolder="tokenizer_2",
         )
 
-        noise_scheduler = DDIMScheduler.from_pretrained(
+        noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
             base_model_name,
             subfolder="scheduler",
-        )
-        noise_scheduler = create.create_noise_scheduler(
-            noise_scheduler=NoiseScheduler.DDIM,
-            original_noise_scheduler=noise_scheduler,
         )
 
         text_encoder_1 = self._load_transformers_sub_module(
@@ -142,10 +136,7 @@ class StableDiffusionXLModelLoader(
             safety_checker=None,
         )
 
-        noise_scheduler = create.create_noise_scheduler(
-            noise_scheduler=NoiseScheduler.DDIM,
-            original_noise_scheduler=pipeline.scheduler,
-        )
+        noise_scheduler = FlowMatchEulerDiscreteScheduler.from_config(pipeline.scheduler.config)
 
         if vae_model_name:
             pipeline.vae = AutoencoderKL.from_pretrained(
@@ -192,10 +183,7 @@ class StableDiffusionXLModelLoader(
                 use_safetensors=True,
             )
 
-        noise_scheduler = create.create_noise_scheduler(
-            noise_scheduler=NoiseScheduler.DDIM,
-            original_noise_scheduler=pipeline.scheduler,
-        )
+        noise_scheduler = FlowMatchEulerDiscreteScheduler.from_config(pipeline.scheduler.config)
 
         if vae_model_name:
             vae = self._load_diffusers_sub_module(
@@ -210,7 +198,7 @@ class StableDiffusionXLModelLoader(
             )
 
         text_encoder_1 = self._convert_transformers_sub_module_to_dtype(
-            pipeline.text_encoder_1, weight_dtypes.text_encoder, weight_dtypes.train_dtype
+            pipeline.text_encoder, weight_dtypes.text_encoder, weight_dtypes.train_dtype
         )
         text_encoder_2 = self._convert_transformers_sub_module_to_dtype(
             pipeline.text_encoder_2, weight_dtypes.text_encoder_2, weight_dtypes.train_dtype
@@ -267,3 +255,4 @@ class StableDiffusionXLModelLoader(
         for stacktrace in stacktraces:
             print(stacktrace)
         raise Exception("could not load model: " + model_names.base_model)
+    

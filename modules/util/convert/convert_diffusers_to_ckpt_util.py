@@ -46,6 +46,11 @@ def pop_prefix(in_states: dict[str, Tensor], in_prefix: str):
 def map_noise_scheduler(noise_scheduler: DDIMScheduler) -> dict:
     out_states = {}
 
+    if not hasattr(noise_scheduler, "betas"):
+        # This scheduler (e.g., a flow matching scheduler) doesn't use betas.
+        # We won't save any scheduler parameters.
+        return out_states
+
     coefficients = DiffusionScheduleCoefficients.from_betas(noise_scheduler.betas)
 
     out_states["betas"] = coefficients.betas

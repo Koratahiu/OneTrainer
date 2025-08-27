@@ -61,6 +61,10 @@ class Optimizer(Enum):
     CAME = 'CAME'
     CAME_8BIT = 'CAME_8BIT'
 
+    # MLorc
+    MLorc_Prodigy = 'MLorc_Prodigy'
+    MLorc_DAdapt_Lion = 'MLorc_DAdapt_Lion'
+
     #Pytorch Optimizers
     ADABELIEF = 'ADABELIEF'
     TIGER = 'TIGER'
@@ -77,6 +81,8 @@ class Optimizer(Enum):
             self.DADAPT_LION,
             self.PRODIGY,
             self.PRODIGY_PLUS_SCHEDULE_FREE,
+            self.MLorc_Prodigy,
+            self.MLorc_DAdapt_Lion,
         ]
 
     @property
@@ -95,6 +101,8 @@ class Optimizer(Enum):
             Optimizer.ADAM,
             Optimizer.ADAMW,
             Optimizer.PRODIGY_PLUS_SCHEDULE_FREE,
+            Optimizer.MLorc_Prodigy,
+            Optimizer.MLorc_DAdapt_Lion,
         ]
 
     # Small helper for adjusting learning rates to adaptive optimizers.

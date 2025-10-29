@@ -138,6 +138,7 @@ class PeftType(Enum):
     LORA = 'LORA'
     LOHA = 'LOHA'
     LOKR = 'LOKR'
+    OFT = 'OFT'
 
     def __str__(self):
         return self.value

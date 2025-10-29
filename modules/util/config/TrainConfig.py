@@ -519,6 +519,12 @@ class TrainConfig(BaseConfig):
     lokr_rs_lora: bool
     lokr_full_matrix: bool
 
+    # oft
+    oft_block_size: int
+    oft_coft: bool
+    oft_eps: float
+    oft_block_share: bool
+
     # optimizer
     optimizer: TrainOptimizerConfig
     optimizer_defaults: dict[str, TrainOptimizerConfig]
@@ -1142,6 +1148,12 @@ class TrainConfig(BaseConfig):
         data.append(("lokr_unbalanced_factorization", False, bool, False))
         data.append(("lokr_rs_lora", False, bool, False))
         data.append(("lokr_full_matrix", False, bool, False))
+
+        # oft
+        data.append(("oft_block_size", 0, int, False))
+        data.append(("oft_coft", False, bool, False))
+        data.append(("oft_eps", 6e-5, float, False))
+        data.append(("oft_block_share", False, bool, False))
 
         # optimizer
         data.append(("optimizer", TrainOptimizerConfig.default_values(), TrainOptimizerConfig, False))

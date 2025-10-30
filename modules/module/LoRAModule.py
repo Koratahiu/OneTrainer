@@ -611,7 +611,7 @@ class OFTModule(PeftBase):
             old_oft_block_size = oft_block_size
             oft_block_size = self.adjust_oft_parameters(in_features, oft_block_size)
             warnings.warn(
-                f"Invalid `rank` (oft_block_size) ({old_oft_block_size}) for layer {self.prefix}! Adjusted `oft_block_size` to ({oft_block_size}).",
+                f"Invalid OFT Block Size ({old_oft_block_size}) for layer {self.prefix}! Adjusted OFT Block Size to ({oft_block_size}).",
                 stacklevel=2,
                 )
 
@@ -624,10 +624,6 @@ class OFTModule(PeftBase):
 
         n_elements = self.oft_block_size * (self.oft_block_size - 1) // 2
 
-        kernel_size = (0, 0)
-        if isinstance(self.orig_module, nn.Conv2d):
-            kernel_size = self.orig_module.kernel_size
-
         self.oft_R = OFTRotationModule(
             r=self.rank if not self.block_share else 1,
             n_elements=n_elements,
@@ -636,7 +632,6 @@ class OFTModule(PeftBase):
             coft=self.coft,
             eps=self.eps,
             block_share=self.block_share,
-            kernel_size=kernel_size,
             use_cayley_neumann=True,
             num_cayley_neumann_terms=5,
             dropout_probability=self.dropout_probability,

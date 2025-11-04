@@ -391,7 +391,9 @@ class BaseStableDiffusionXLSetup(
                     )
 
                     # predicted image
-                    if not config.diff2flow:
+                    if config.diff2flow:
+                        scaled_predicted_latent_image = xt_flow + predicted_velocity * t_continuous
+                    else:
                         alphas_cumprod = model.noise_scheduler.alphas_cumprod.to(config.train_device)
                         sqrt_alpha_prod = alphas_cumprod[timestep] ** 0.5
                         sqrt_alpha_prod = sqrt_alpha_prod.flatten().reshape(-1, 1, 1, 1)
@@ -402,13 +404,14 @@ class BaseStableDiffusionXLSetup(
                         scaled_predicted_latent_image = \
                             (scaled_noisy_latent_image - predicted_latent_noise * sqrt_one_minus_alpha_prod) \
                             / sqrt_alpha_prod
-                        self._save_image(
-                            self._project_latent_to_image_sdxl(scaled_predicted_latent_image),
-                            config.debug_dir + "/training_batches",
-                            "4-predicted_image",
-                            model.train_progress.global_step,
-                            True
-                        )
+
+                    self._save_image(
+                        self._project_latent_to_image_sdxl(scaled_predicted_latent_image),
+                        config.debug_dir + "/training_batches",
+                        "4-predicted_image",
+                        model.train_progress.global_step,
+                        True
+                    )
 
                     # image
                     self._save_image(

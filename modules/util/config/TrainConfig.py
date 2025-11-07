@@ -132,11 +132,10 @@ class TrainOptimizerConfig(BaseConfig):
     muon_te1_adam_lr: float
     muon_te2_adam_lr: float
     muon_adam_config: 'TrainOptimizerConfig'
-    rms_target: float
+    rms_rescaling: True
     normuon_variant: False
     beta2_normuon: float
     normuon_eps: float
-    normuon_lr_scale: float
     low_rank_ortho: False
     ortho_rank: int
     compiled_optimizer: False
@@ -249,11 +248,10 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("muon_te1_adam_lr", None, float, True))
         data.append(("muon_te2_adam_lr", None, float, True))
         data.append(("muon_adam_config", None, TrainOptimizerConfig, True))
-        data.append(("rms_target", None, float, True))
+        data.append(("rms_rescaling", True, bool, True))
         data.append(("normuon_variant", False, bool, False))
         data.append(("beta2_normuon", None, float, True))
         data.append(("normuon_eps", None, float, True))
-        data.append(("normuon_lr_scale", None, float, True))
         data.append(("low_rank_ortho", False, bool, False))
         data.append(("ortho_rank", None, int, True))
         data.append(("compiled_optimizer", False, bool, False))

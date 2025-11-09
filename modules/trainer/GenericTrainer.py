@@ -136,6 +136,10 @@ class GenericTrainer(BaseTrainer):
         self.model.eval()
         torch_gc()
 
+        if True:
+            self.callbacks.on_update_status("converting to LoRA")
+            self.model.transformer_lora.convert_to_lora(self.config.lora_rank, self.config.lora_alpha, self.config.lora_weight_dtype.torch_dtype(), self.config.train_device, self.config.temp_device)
+
         self.callbacks.on_update_status("creating the data loader/caching")
 
         self.data_loader = self.create_data_loader(

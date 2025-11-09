@@ -68,6 +68,9 @@ class PeftBase(nn.Module):
             self.orig_module.eval = self.orig_eval
             self.is_applied = False
 
+    def is_hooked(self):
+        return self.is_applied
+
     def _wrap_train(self, mode=True):
         self.orig_train(mode)
         self.train(mode)
@@ -125,6 +128,10 @@ class PeftBase(nn.Module):
     def extract_from_module(self, base_module: nn.Module):
         pass
 
+    @abstractmethod
+    def get_applied_weights(self) -> Tensor:
+        pass
+
     def create_layer(self) -> tuple[nn.Module, nn.Module]:
         """Generic helper function for creating a PEFT layer, like LoRA.
 
@@ -161,6 +168,13 @@ class PeftBase(nn.Module):
                 raise NotImplementedError("Only Linear and Conv2d are supported layers.")
 
         return lora_down, lora_up
+
+    def get_orig_module_weights(self, device: torch.device):
+        if isinstance(self.orig_module, nn.Linear):
+            return get_unquantized_weight(self.orig_module, torch.float, device)
+        else:
+            assert isinstance(self.orig_module, nn.Conv2d)
+            return self.orig_module.weight.detach().to(device).float()
 
     @classmethod
     def make_dummy(cls):
@@ -204,6 +218,9 @@ class PeftBase(nn.Module):
                 raise NotImplementedError("Should never be called on a dummy module.")
 
             def extract_from_module(self, base_module: nn.Module):
+                raise NotImplementedError("Should never be called on a dummy module.")
+
+            def get_applied_weights(self) -> Tensor:
                 raise NotImplementedError("Should never be called on a dummy module.")
 
         return Dummy
@@ -333,6 +350,26 @@ class LoRAModule(PeftBase):
         # TODO
         pass
 
+    def get_applied_weights(self, device: torch.device) -> Tensor:
+        return self.get_orig_module_weights(device).to(device) + (self.lora_up.weight.to(device) @ self.lora_down.weight.to(device)) * (self.alpha.to(device) / self.rank)
+
+    @torch.no_grad()
+    def extract_from_weights(self, weights: Tensor, device: torch.device | None = None, fast: bool=True):
+        diff_weights_scaled = (weights.to(device).float() - self.get_orig_module_weights(device).to(device).float()) / (self.alpha / self.rank)
+
+        if fast:
+            U, S, V = torch.svd_lowrank(diff_weights_scaled, q=self.rank + 10)
+            Vh = V.T
+        else:
+            U, S, Vh = torch.linalg.svd(diff_weights_scaled, full_matrices=False)
+
+        U_r = U[:, :self.rank]
+        S_r = S[:self.rank]
+        Vh_r = Vh[:self.rank, :]
+
+        self.lora_down.weight = nn.Parameter(Vh_r.clone().contiguous())
+        self.lora_up.weight = nn.Parameter((U_r * S_r.unsqueeze(0)).clone().contiguous())
+
 
 class OFTModule(PeftBase):
     oft_R: OFTRotationModule | None
@@ -429,6 +466,24 @@ class OFTModule(PeftBase):
         )
 
         nn.init.zeros_(self.oft_R.weight)
+
+    def get_applied_weights(self, device: torch.device) -> Tensor:
+        #taken from Conv2d code, assuming it works the same for linear:
+        orth_rotate = self.oft_R._cayley_batch(
+            self.oft_R.weight, self.oft_R.block_size, self.oft_R.use_cayley_neumann, self.oft_R.num_cayley_neumann_terms
+        )
+        #TODO probably shouldn't use dropout for this, only for training?
+        orth_rotate = self.oft_R.dropout(orth_rotate)
+
+        if self.block_share:
+            orth_rotate = orth_rotate.repeat(self.rank, 1, 1)
+
+        weight = self.get_orig_module_weights(device).to(device)
+        weight_reshaped = weight.reshape(weight.shape[0], self.rank, self.oft_block_size)
+        rotated_weight_reshaped = torch.einsum("ork,rkc->orc", weight_reshaped, orth_rotate)
+
+        rotated_weight = rotated_weight_reshaped.reshape(weight.shape)
+        return rotated_weight
 
     def forward(self, x, *args, **kwargs):
         self.check_initialized()
@@ -764,6 +819,26 @@ class LoRAModuleWrapper:
         """
         for module in self.lora_modules.values():
             module.extract_from_module(base_module)
+
+    def convert_to_lora(self, rank: int, alpha: float, dtype: torch.dtype ,train_device: torch.device, temp_device: torch.device):
+        #TODO dtype
+        for name in self.lora_modules:
+            src = self.lora_modules[name]
+            hooked = src.is_hooked()
+            if hooked:
+                src.remove_hook_from_module()
+
+            src = src.to(train_device)
+            print(f"converting {name}/{type(src)}")
+            weights = src.get_applied_weights(train_device)
+            dest = LoRAModule(name, src.orig_module, rank, alpha)
+            dest = dest.to(train_device)
+            dest.extract_from_weights(weights, train_device)
+            if hooked:
+                dest.hook_to_module()
+            self.lora_modules[name] = dest.to(temp_device)
+
+
 
     def prune(self):
         """

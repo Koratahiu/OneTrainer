@@ -357,18 +357,52 @@ class LoRAModule(PeftBase):
     def extract_from_weights(self, weights: Tensor, device: torch.device | None = None, fast: bool=True):
         diff_weights_scaled = (weights.to(device).float() - self.get_orig_module_weights(device).to(device).float()) / (self.alpha / self.rank)
 
+        # For conv layers, we need to reshape the weights into a 2D matrix.
+        is_conv = diff_weights_scaled.dim() == 4
+        if is_conv:
+            diff_weights_scaled = diff_weights_scaled.flatten(1)
+
         if fast:
             U, S, V = torch.svd_lowrank(diff_weights_scaled, q=self.rank + 10)
             Vh = V.T
         else:
             U, S, Vh = torch.linalg.svd(diff_weights_scaled, full_matrices=False)
 
-        U_r = U[:, :self.rank]
-        S_r = S[:self.rank]
-        Vh_r = Vh[:self.rank, :]
+        # The effective rank is the number of singular values found by SVD,
+        # which can be less than the target rank.
+        effective_rank = S.shape[0]
+        rank_to_use = min(self.rank, effective_rank)
 
-        self.lora_down.weight = nn.Parameter(Vh_r.clone().contiguous())
-        self.lora_up.weight = nn.Parameter((U_r * S_r.unsqueeze(0)).clone().contiguous())
+        # Slice the SVD results using the smaller, usable rank
+        U_r = U[:, :rank_to_use]
+        S_r = S[:rank_to_use]
+        Vh_r = Vh[:rank_to_use, :]
+
+        # Calculate the effective-rank LoRA matrices
+        lora_down_w_eff = Vh_r
+        lora_up_w_eff = U_r * S_r.unsqueeze(0)
+
+        # Create new zero-filled tensors with the full target shapes
+        down_target_shape = self.lora_down.weight.shape
+        up_target_shape = self.lora_up.weight.shape
+        new_lora_down_w = torch.zeros(down_target_shape, device=device, dtype=lora_down_w_eff.dtype)
+        new_lora_up_w = torch.zeros(up_target_shape, device=device, dtype=lora_up_w_eff.dtype)
+
+        # Copy the smaller, effective-rank weights into the top-left of the zero tensors.
+        # This pads the remaining rank with zeros.
+        if is_conv:
+            # Reshape effective weights to match the N-D shape of the target tensors
+            down_slice_shape = (rank_to_use, *down_target_shape[1:])
+            up_slice_shape = (up_target_shape[0], rank_to_use, *up_target_shape[2:])
+            new_lora_down_w[:rank_to_use, ...] = lora_down_w_eff.reshape(down_slice_shape)
+            new_lora_up_w[:, :rank_to_use, ...] = lora_up_w_eff.reshape(up_slice_shape)
+        else: # Linear
+            new_lora_down_w[:rank_to_use, :] = lora_down_w_eff
+            new_lora_up_w[:, :rank_to_use] = lora_up_w_eff
+
+        # Assign the new, padded weights to the module
+        self.lora_down.weight = nn.Parameter(new_lora_down_w.clone().contiguous())
+        self.lora_up.weight = nn.Parameter(new_lora_up_w.clone().contiguous())
 
 
 class OFTModule(PeftBase):
@@ -479,8 +513,18 @@ class OFTModule(PeftBase):
             orth_rotate = orth_rotate.repeat(self.rank, 1, 1)
 
         weight = self.get_orig_module_weights(device).to(device)
+
+        is_conv2d = weight.dim() == 4
+
+        if is_conv2d:
+            # Use R for Conv2d layers
+            rotation_matrix_for_weight = orth_rotate
+        else:
+            # Use R.T for Linear layers
+            rotation_matrix_for_weight = orth_rotate.transpose(-1, -2)
+
         weight_reshaped = weight.reshape(weight.shape[0], self.rank, self.oft_block_size)
-        rotated_weight_reshaped = torch.einsum("ork,rkc->orc", weight_reshaped, orth_rotate)
+        rotated_weight_reshaped = torch.einsum("ork,rkc->orc", weight_reshaped, rotation_matrix_for_weight)
 
         rotated_weight = rotated_weight_reshaped.reshape(weight.shape)
         return rotated_weight

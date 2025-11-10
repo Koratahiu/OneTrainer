@@ -22,12 +22,16 @@ class MultiplicativeDropoutLayer(nn.Module):
             if D == 1:
                 return x
 
-            num_to_replace = int(self.p * D)
-            num_zeros = D - num_to_replace
-            mask = torch.cat([torch.ones(num_to_replace, device=x.device), torch.zeros(num_zeros, device=x.device)])
-            mask = mask[torch.randperm(D)].view(D, 1, 1)
-            eye_matrix = torch.eye(H, device=x.device).repeat(D, 1, 1)
-            x = (1 - mask) * x + mask * eye_matrix
+            keep_prob = 1.0 - self.p
+
+            # This 'stochastic_mask' has 1s for blocks to keep, and 0s for blocks to replace with Identity.
+            stochastic_mask = torch.empty(D, 1, 1, device=x.device, dtype=x.dtype).bernoulli_(p=keep_prob)
+            
+            eye_matrix = torch.eye(H, device=x.device, dtype=x.dtype).repeat(D, 1, 1)
+            
+            # stochastic_mask = 1 (Keep Learned Block) | (1 - stochastic_mask) = 1 (Replace with Identity)
+            x = stochastic_mask * x + (1 - stochastic_mask) * eye_matrix
+
         return x
 
 

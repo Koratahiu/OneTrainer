@@ -574,6 +574,12 @@ class TrainingTab:
         rescale_diff_label.configure(wraplength=130, justify="left")
         components.switch(frame, 4, 1, self.ui_state, "diff2flow")
 
+        # Selective Diff2Flow Timesteps
+        selective_diff_label = components.label(frame, 5, 0, "Selective Diff2Flow Timesteps",
+                         tooltip="Apply Diff2Flow to only the high timesteps: 1000 to 950. Fixing eps/v pred color/brightness issues.")
+        selective_diff_label.configure(wraplength=130, justify="left")
+        components.switch(frame, 5, 1, self.ui_state, "selective_diff2flow")
+
     def __create_prior_frame(self, master, row):
         frame = ctk.CTkFrame(master=master, corner_radius=5)
         frame.grid(row=row, column=0, padx=5, pady=5, sticky="nsew")

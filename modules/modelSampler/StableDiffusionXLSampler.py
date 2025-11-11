@@ -249,34 +249,6 @@ class StableDiffusionXLSampler(BaseModelSampler):
                 "text_embeds": torch.concat([negative_pooled_text_encoder_2_output, pooled_text_encoder_2_output], dim=0),
                 "time_ids": torch.concat([add_time_ids] * 2, dim=0),
             }
-            
-            self.model.unet_to(self.train_device)
-
-            if False:
-                print("Applying Flow2Eps: Using Diff2Flow for the initial step to tackle t=1 singularity.")
-                # At t=1 (diffusion time), the corresponding flow time is t=0.
-                # We predict the velocity from pure noise to get the direction to the clean image.
-                latent_model_input = torch.cat([latent_image] * 2)
-                t_batch = torch.zeros((2,), device=self.train_device, dtype=self.model.train_dtype.torch_dtype())
-
-                velocity_pred = self.model.get_diff2flow_velocity(
-                    latent_model_input, t_batch,
-                    encoder_hidden_states=combined_prompt_embedding,
-                    added_cond_kwargs=added_cond_kwargs,
-                )
-
-                # Apply CFG to the velocity
-                velocity_uncond, velocity_cond = velocity_pred.chunk(2)
-                velocity = velocity_uncond + cfg_scale * (velocity_cond - velocity_uncond)
-
-                # Take a single Euler step to move the noise towards a better starting point.
-                # This is analogous to the paper's x_{1-e} = a_{1-e}*y_theta + sigma_{1-e}*x_1
-                dt = 1 / diffusion_steps
-                latent_image = latent_image + dt * velocity
-
-                # The first step is done, so we skip it in the main loop
-                timesteps = timesteps[1:]
-                on_update_progress(1, diffusion_steps) # Manually update progress for the first step
 
             # denoising loop
             extra_step_kwargs = {}
@@ -284,10 +256,7 @@ class StableDiffusionXLSampler(BaseModelSampler):
                 extra_step_kwargs["generator"] = generator
 
             # denoising loop
-            # self.model.unet_to(self.train_device)
-
-#            loop_start_index = 1 if False else 0
-
+            self.model.unet_to(self.train_device)
             for i, timestep in enumerate(tqdm(timesteps, desc="sampling")):
                 latent_model_input = torch.cat([latent_image] * 2)
                 latent_model_input = noise_scheduler.scale_model_input(latent_model_input, timestep)
@@ -317,9 +286,8 @@ class StableDiffusionXLSampler(BaseModelSampler):
                 latent_image = noise_scheduler.step(
                     noise_pred, timestep, latent_image, return_dict=False, **extra_step_kwargs
                 )[0]
-                on_update_progress(i + 1, len(timesteps))
 
-#                on_update_progress(i + 1 + loop_start_index, diffusion_steps)
+                on_update_progress(i + 1, len(timesteps))
 
             self.model.unet_to(self.temp_device)
             torch_gc()

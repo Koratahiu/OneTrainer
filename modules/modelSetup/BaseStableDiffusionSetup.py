@@ -169,7 +169,7 @@ class BaseStableDiffusionSetup(
             latent_image = batch['latent_image']
             scaled_latent_image = latent_image * vae_scaling_factor
 
-            # Standard path if diff2flow or flow2eps is disabled
+            # Standard path if diff2flow or selective_diff2flow is disabled
             if not config.diff2flow and not config.selective_diff2flow:
                 # This is the original standard diffusion training path
                 scaled_latent_conditioning_image = None
@@ -239,7 +239,7 @@ class BaseStableDiffusionSetup(
                 )
 
                 # Determine which samples use which training objective
-                diff2flow_threshold = 950
+                diff2flow_threshold = config.selective_diff2flow_timesteps
                 use_flow_mask = torch.ones_like(discrete_timestep, dtype=torch.bool) if not config.selective_diff2flow else (
                             discrete_timestep >= diff2flow_threshold)
 

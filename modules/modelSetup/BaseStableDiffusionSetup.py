@@ -169,66 +169,9 @@ class BaseStableDiffusionSetup(
             latent_image = batch['latent_image']
             scaled_latent_image = latent_image * vae_scaling_factor
 
-            if config.diff2flow:
-                # Reverse OT timesteps to align with diff2flow logic
-                discrete_timestep = 999 - self._get_timestep_discrete(
-                    model.noise_scheduler.config['num_train_timesteps'],
-                    deterministic,
-                    generator,
-                    scaled_latent_image.shape[0],
-                    config,
-                )
-                latent_noise = self._create_noise(
-                    scaled_latent_image,
-                    config,
-                    generator,
-                    discrete_timestep,
-                    model.noise_scheduler.betas,
-                )
-
-                t_continuous = discrete_timestep / 1000
-
-                # Ground truth velocity field: u_t(x) = x_1 - x_0
-                target_velocity = scaled_latent_image - latent_noise
-
-                # Interpolated sample: x_t = (1-t)x_0 + t*x_1
-                t_reshaped = t_continuous.reshape(-1, *([1] * (scaled_latent_image.dim() - 1)))
-                xt_flow = (1 - t_reshaped) * latent_noise + t_reshaped * scaled_latent_image
-
-                # Convert from Flow Matching (FM) space to Diffusion Model (DM) space
-                dm_t_continuous = model._df_convert_fm_t_to_dm_t(t_continuous)
-                dm_x = model._df_convert_fm_xt_to_dm_xt(xt_flow, t_continuous)
-
-                # Predict noise/v using the UNet in diffusion space
-                if config.model_type.has_depth_input():
-                    predicted_from_unet = model.unet(
-                        dm_x.to(dtype=model.train_dtype.torch_dtype()),
-                        dm_t_continuous,
-                        text_encoder_output.to(dtype=model.train_dtype.torch_dtype()),
-                        batch['latent_depth'].to(dtype=model.train_dtype.torch_dtype()),
-                    ).sample
-                else:
-                    predicted_from_unet = model.unet(
-                        dm_x.to(dtype=model.train_dtype.torch_dtype()),
-                        dm_t_continuous,
-                        text_encoder_output.to(dtype=model.train_dtype.torch_dtype()),
-                    ).sample
-
-                # Convert UNet output (eps or v) back to the velocity field v_t in FM space
-                if model.noise_scheduler.config.prediction_type == 'v_prediction':
-                    predicted_velocity = model._df_get_vector_field_from_v(predicted_from_unet, dm_x, dm_t_continuous)
-                elif model.noise_scheduler.config.prediction_type == 'epsilon':
-                    predicted_velocity = model._df_get_vector_field_from_eps(predicted_from_unet, dm_x, dm_t_continuous)
-
-                model_output_data = {
-                    'loss_type': 'target',
-                    'predicted': predicted_velocity,
-                    'target': target_velocity,
-                    'timestep': discrete_timestep,
-                    'prediction_type': model.noise_scheduler.config.prediction_type,
-                }
-            else:
-                # Original diffusion training logic
+            # Standard path if diff2flow or flow2eps is disabled
+            if not config.diff2flow and not config.selective_diff2flow:
+                # This is the original standard diffusion training path
                 scaled_latent_conditioning_image = None
                 if config.model_type.has_conditioning_image_input():
                     scaled_latent_conditioning_image = batch['latent_conditioning_image'] * vae_scaling_factor
@@ -277,106 +220,115 @@ class BaseStableDiffusionSetup(
                         text_encoder_output.to(dtype=model.train_dtype.torch_dtype()),
                     ).sample
 
-                model_output_data = {}
-
+                model_output_data = {'predicted': predicted_latent_noise, 'timestep': timestep}
                 if model.noise_scheduler.config.prediction_type == 'epsilon':
-                    model_output_data = {
-                        'loss_type': 'target',
-                        'timestep': timestep,
-                        'predicted': predicted_latent_noise,
-                        'target': latent_noise,
-                    }
+                    model_output_data['target'] = latent_noise
                 elif model.noise_scheduler.config.prediction_type == 'v_prediction':
-                    target_velocity = model.noise_scheduler.get_velocity(scaled_latent_image, latent_noise, timestep)
-                    model_output_data = {
-                        'loss_type': 'target',
-                        'timestep': timestep,
-                        'predicted': predicted_latent_noise,
-                        'target': target_velocity,
-                    }
-
-            if self.debug_mode:
-                with torch.no_grad():
-                    self._save_text(
-                        self._decode_tokens(batch['tokens'], model.tokenizer),
-                        config.debug_dir + "/training_batches",
-                        "7-prompt",
-                        train_progress.global_step,
+                    model_output_data['target'] = model.noise_scheduler.get_velocity(
+                        scaled_latent_image, latent_noise, timestep
                     )
 
-                    # noise
-                    noise = model.vae.decode(latent_noise / vae_scaling_factor).sample
-                    noise = noise.clamp(-1, 1)
-                    self._save_image(
-                        noise,
-                        config.debug_dir + "/training_batches",
-                        "1-noise",
-                        train_progress.global_step
+            else:  # diff2flow and the new hybrid mode
+                # Get timesteps for the whole batch
+                discrete_timestep = self._get_timestep_discrete(
+                    model.noise_scheduler.config['num_train_timesteps'],
+                    deterministic,
+                    generator,
+                    scaled_latent_image.shape[0],
+                    config,
+                )
+
+                # Determine which samples use which training objective
+                diff2flow_threshold = 950
+                use_flow_mask = torch.ones_like(discrete_timestep, dtype=torch.bool) if not config.selective_diff2flow else (
+                            discrete_timestep >= diff2flow_threshold)
+
+                # Prepare combined tensors for UNet input
+                batch_size = scaled_latent_image.shape[0]
+                combined_unet_sample = torch.zeros_like(scaled_latent_image)
+                combined_unet_timestep = torch.zeros(batch_size, device=config.train_device)
+
+                # Prepare combined tensors for loss calculation
+                combined_target = torch.zeros_like(scaled_latent_image)
+
+                # Path 1: Diff2Flow
+                if use_flow_mask.any():
+                    flow_indices = torch.where(use_flow_mask)[0]
+                    flow_timesteps = discrete_timestep[flow_indices]
+                    num_train_timesteps = model.noise_scheduler.config['num_train_timesteps']
+
+                    # Reverse OT timesteps to align with diff2flow logic
+                    flow_timesteps_reversed = (num_train_timesteps - 1) - flow_timesteps
+
+                    flow_latent_noise = self._create_noise(
+                        scaled_latent_image[flow_indices], config, generator, flow_timesteps,
+                        model.noise_scheduler.betas,
                     )
 
-                    # predicted noise
-                    predicted_noise = model.vae.decode(predicted_latent_noise / vae_scaling_factor).sample
-                    predicted_noise = predicted_noise.clamp(-1, 1)
-                    self._save_image(
-                        predicted_noise,
-                        config.debug_dir + "/training_batches",
-                        "2-predicted_noise",
-                        train_progress.global_step
+                    target_velocity = scaled_latent_image[flow_indices] - flow_latent_noise
+
+                    t_continuous = flow_timesteps_reversed.float() / num_train_timesteps
+                    t_reshaped = t_continuous.reshape(-1, *([1] * (scaled_latent_image.dim() - 1)))
+                    xt_flow = (1 - t_reshaped) * flow_latent_noise + t_reshaped * scaled_latent_image[flow_indices]
+
+                    dm_t_continuous = model._df_convert_fm_t_to_dm_t(t_continuous)
+                    dm_x = model._df_convert_fm_xt_to_dm_xt(xt_flow, t_continuous)
+
+                    combined_unet_sample[flow_indices] = dm_x.to(dtype=model.train_dtype.torch_dtype())
+                    combined_unet_timestep[flow_indices] = dm_t_continuous
+                    combined_target[flow_indices] = target_velocity
+
+                # Path 2: Standard Diffusion
+                if not use_flow_mask.all():
+                    std_indices = torch.where(~use_flow_mask)[0]
+                    std_timesteps = discrete_timestep[std_indices]
+
+                    std_latent_noise = self._create_noise(
+                        scaled_latent_image[std_indices], config, generator, std_timesteps,
+                        model.noise_scheduler.betas,
                     )
 
-                    # noisy image
-                    noisy_latent_image = scaled_noisy_latent_image / vae_scaling_factor
-                    noisy_image = model.vae.decode(noisy_latent_image).sample
-                    noisy_image = noisy_image.clamp(-1, 1)
-                    self._save_image(
-                        noisy_image,
-                        config.debug_dir + "/training_batches",
-                        "3-noisy_image",
-                        train_progress.global_step
+                    scaled_noisy_latent_image = self._add_noise_discrete(
+                        scaled_latent_image[std_indices], std_latent_noise, std_timesteps,
+                        model.noise_scheduler.betas,
                     )
 
-                    # predicted image
-                    alphas_cumprod = model.noise_scheduler.alphas_cumprod.to(config.train_device, dtype=model.vae.dtype)
-                    sqrt_alpha_prod = alphas_cumprod[timestep] ** 0.5
-                    sqrt_alpha_prod = sqrt_alpha_prod.flatten().reshape(-1, 1, 1, 1)
+                    combined_unet_sample[std_indices] = scaled_noisy_latent_image
+                    combined_unet_timestep[std_indices] = std_timesteps.float()
 
-                    sqrt_one_minus_alpha_prod = (1 - alphas_cumprod[timestep]) ** 0.5
-                    sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.flatten().reshape(-1, 1, 1, 1)
-
-                    scaled_predicted_latent_image = \
-                        (
-                                scaled_noisy_latent_image - predicted_latent_noise * sqrt_one_minus_alpha_prod) / sqrt_alpha_prod
-                    predicted_latent_image = scaled_predicted_latent_image / vae_scaling_factor
-                    predicted_image = model.vae.decode(predicted_latent_image).sample
-                    predicted_image = predicted_image.clamp(-1, 1)
-                    self._save_image(
-                        predicted_image,
-                        config.debug_dir + "/training_batches",
-                        "4-predicted_image",
-                        model.train_progress.global_step
-                    )
-
-                    # image
-                    image = model.vae.decode(latent_image).sample
-                    image = image.clamp(-1, 1)
-                    self._save_image(
-                        image,
-                        config.debug_dir + "/training_batches",
-                        "5-image",
-                        model.train_progress.global_step
-                    )
-
-                    # conditioning image
-                    if config.model_type.has_conditioning_image_input():
-                        conditioning_image = model.vae.decode(
-                            scaled_latent_conditioning_image / vae_scaling_factor).sample
-                        conditioning_image = conditioning_image.clamp(-1, 1)
-                        self._save_image(
-                            conditioning_image,
-                            config.debug_dir + "/training_batches",
-                            "6-conditioning_image",
-                            train_progress.global_step
+                    if model.noise_scheduler.config.prediction_type == 'epsilon':
+                        combined_target[std_indices] = std_latent_noise
+                    elif model.noise_scheduler.config.prediction_type == 'v_prediction':
+                        combined_target[std_indices] = model.noise_scheduler.get_velocity(
+                            scaled_latent_image[std_indices], std_latent_noise, std_timesteps
                         )
+
+                # Run UNet on the combined batch
+                if config.model_type.has_depth_input():
+                    predicted_from_unet = model.unet(
+                        combined_unet_sample.to(dtype=model.train_dtype.torch_dtype()),
+                        combined_unet_timestep,
+                        text_encoder_output.to(dtype=model.train_dtype.torch_dtype()),
+                        batch['latent_depth'].to(dtype=model.train_dtype.torch_dtype()),
+                    ).sample
+                else:
+                    predicted_from_unet = model.unet(
+                        combined_unet_sample.to(dtype=model.train_dtype.torch_dtype()),
+                        combined_unet_timestep,
+                        text_encoder_output.to(dtype=model.train_dtype.torch_dtype()),
+                    ).sample
+
+                # Pass raw output and context to calculate_loss for conversion
+                model_output_data = {
+                    'predicted': predicted_from_unet,
+                    'target': combined_target,
+                    'timestep': discrete_timestep,
+                    'use_flow_mask': use_flow_mask,
+                    'flow_context': {
+                        'dm_x': combined_unet_sample,
+                        'dm_t': combined_unet_timestep
+                    }
+                }
 
             model_output_data['prediction_type'] = model.noise_scheduler.config.prediction_type
             return model_output_data
@@ -388,9 +340,56 @@ class BaseStableDiffusionSetup(
             data: dict,
             config: TrainConfig,
     ) -> Tensor:
+        use_flow_mask = data.get('use_flow_mask')
+
+        # If no mask, it's a standard batch, use the original loss function
+        if use_flow_mask is None:
+            return self._diffusion_losses(
+                batch=batch,
+                data=data,
+                config=config,
+                train_device=self.train_device,
+                betas=model.noise_scheduler.betas,
+            ).mean()
+
+        final_predicted = data['predicted']
+        final_target = data['target'].clone()
+
+        # For the flow-based samples, convert their target into the model's native prediction space.
+        if use_flow_mask.any():
+            flow_indices = torch.where(use_flow_mask)[0]
+
+            flow_context = data['flow_context']
+            dm_x = flow_context['dm_x'][flow_indices]
+            dm_t = flow_context['dm_t'][flow_indices]
+
+            # This is the ground-truth flow velocity u_t = x_1 - x_0
+            u_target_for_flow_samples = final_target[flow_indices]
+
+            # Convert u_target into the model's native epsilon space.
+            eps_target = model._df_predict_eps_from_z_and_v(dm_x, dm_t, u_target_for_flow_samples).to(
+                dtype=model.train_dtype.torch_dtype())
+
+            if model.noise_scheduler.config.prediction_type == 'v_prediction':
+                # Convert the epsilon target to the final v-target.
+                v_target = model.noise_scheduler.get_velocity(dm_x, eps_target, dm_t)
+                final_target[flow_indices] = v_target.to(dtype=model.train_dtype.torch_dtype())
+            elif model.noise_scheduler.config.prediction_type == 'epsilon':
+                # The target is already in the correct epsilon space.
+                final_target[flow_indices] = eps_target
+
+        loss_data = {
+            'predicted': final_predicted,
+            'target': final_target,
+            'timestep': data['timestep'],
+            'loss_type': 'target',
+            'prediction_type': data['prediction_type'],
+        }
+
+        # The standard loss function can now handle the entire batch uniformly.
         return self._diffusion_losses(
             batch=batch,
-            data=data,
+            data=loss_data,
             config=config,
             train_device=self.train_device,
             betas=model.noise_scheduler.betas,

@@ -38,14 +38,14 @@ class LoraTab:
         components.options_kv(self.scroll_frame, 0, 1, [
             ("LoRA", PeftType.LORA),
             ("LoHa", PeftType.LOHA),
-            ("OFT", PeftType.OFT),
+            ("OFT v2", PeftType.OFT_2),
         ], self.ui_state, "peft_type", command=self.setup_lora)
 
     def setup_lora(self, peft_type: PeftType):
         if peft_type == PeftType.LOHA:
             name = "LoHa"
-        elif peft_type == PeftType.OFT:
-            name = "OFT"
+        elif peft_type == PeftType.OFT_2:
+            name = "OFT v2"
         else:
             name = "LoRA"
 
@@ -114,12 +114,12 @@ class LoraTab:
                             tooltip=f"Bundles any additional embeddings into the {name} output file, rather than as separate files")
             components.switch(master, 5, 1, self.ui_state, "bundle_additional_embeddings")
 
-        # OFT
-        elif peft_type == PeftType.OFT:
+        # OFTv2
+        elif peft_type == PeftType.OFT_2:
             # Block Size
             components.label(master, 1, 0, f"{name} Block Size",
                             tooltip=f"The block size parameter used when creating a new {name}")
-            components.entry(master, 1, 1, self.ui_state, "lora_rank")
+            components.entry(master, 1, 1, self.ui_state, "oft_block_size")
 
             # COFT
             components.label(master, 1, 3, "Constrained OFT (COFT)",
@@ -128,7 +128,7 @@ class LoraTab:
 
             components.label(master, 2, 3, "COFT Epsilon",
                              tooltip="The control strength of COFT. Only has an effect if COFT is enabled.")
-            components.entry(master, 2, 4, self.ui_state, "oft_eps")
+            components.entry(master, 2, 4, self.ui_state, "coft_eps")
 
             # Block Share
             components.label(master, 3, 3, "Block Share",
@@ -140,7 +140,7 @@ class LoraTab:
                             tooltip="Dropout probability. This percentage of the rotated adapter nodes that will be randomly restored to the base model initial statue. Helps with overfitting. 0 disables, 1 maximum.")
             components.entry(master, 2, 1, self.ui_state, "dropout_probability")
 
-            # lora weight dtype
+            # OFT weight dtype
             components.label(master, 3, 0, f"{name} Weight Data Type",
                             tooltip=f"The {name} weight data type used for training. This can reduce memory consumption, but reduces precision")
             components.options_kv(master, 3, 1, [

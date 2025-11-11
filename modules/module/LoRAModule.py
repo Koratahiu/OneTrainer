@@ -1,6 +1,5 @@
 import copy
 import math
-import warnings
 from abc import abstractmethod
 from collections.abc import Mapping
 from typing import Any
@@ -8,7 +7,7 @@ from typing import Any
 from modules.util.config.TrainConfig import TrainConfig
 from modules.util.enum.ModelType import PeftType
 from modules.util.ModuleFilter import ModuleFilter
-from modules.util.oft_utils import OFTRotationModule
+from modules.module.oft_utils import OFTRotationModule
 from modules.util.quantization_util import get_unquantized_weight, get_weight_shape
 
 import torch
@@ -339,20 +338,16 @@ class OFTModule(PeftBase):
     rank: int
     oft_block_size: int
     coft: bool
-    eps: float
+    coft_eps: float
     block_share: bool
     dropout_probability: float
 
-    def __init__(self, prefix: str, orig_module: nn.Module | None, rank: int, coft: bool, eps: float, block_share: bool, **kwargs):
-        """
-        Note: The 'rank' parameter for OFTModule is interpreted as the 'oft_block_size'.
-        The actual rank (number of blocks) is calculated during initialization.
-        """
+    def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, coft: bool, coft_eps: float, block_share: bool, **kwargs):
         super().__init__(prefix, orig_module)
-        self.oft_block_size = rank
+        self.oft_block_size = oft_block_size
         self.rank = 0
         self.coft = coft
-        self.eps = eps
+        self.coft_eps = coft_eps
         self.block_share = block_share
         self.dropout_probability = kwargs.pop('dropout_probability', 0.0)
         self.oft_R = None
@@ -401,10 +396,7 @@ class OFTModule(PeftBase):
         if in_features % oft_block_size != 0 or oft_block_size > in_features:
             old_oft_block_size = oft_block_size
             oft_block_size = self.adjust_oft_parameters(in_features, oft_block_size)
-            warnings.warn(
-                f"Invalid OFT Block Size ({old_oft_block_size}) for layer {self.prefix}! Adjusted OFT Block Size to ({oft_block_size}).",
-                stacklevel=2,
-                )
+            print(f"Invalid OFT Block Size ({old_oft_block_size}) for layer {self.prefix}! Adjusted OFT Block Size to ({oft_block_size}).")
 
         # Calculate the number of blocks 'r'
         r = in_features // oft_block_size
@@ -421,7 +413,7 @@ class OFTModule(PeftBase):
             block_size=self.oft_block_size,
             in_features=in_features,
             coft=self.coft,
-            eps=self.eps,
+            coft_eps=self.coft_eps,
             block_share=self.block_share,
             use_cayley_neumann=True,
             num_cayley_neumann_terms=5,
@@ -622,13 +614,13 @@ class LoRAModuleWrapper:
             self.dummy_klass = DummyLoHaModule
             self.additional_args = [self.rank, self.alpha]
             self.additional_kwargs = {}
-        elif self.peft_type == PeftType.OFT:
+        elif self.peft_type == PeftType.OFT_2:
             self.klass = OFTModule
             self.dummy_klass = DummyOFTModule
             self.additional_args = [
-                self.rank,
+                config.oft_block_size,
                 config.oft_coft,
-                config.oft_eps,
+                config.coft_eps,
                 config.oft_block_share,
             ]
             self.additional_kwargs = {
@@ -693,7 +685,7 @@ class LoRAModuleWrapper:
             return
 
         # For OFT, the comparison is not straightforward, so we skip it.
-        if self.peft_type == PeftType.OFT:
+        if self.peft_type == PeftType.OFT_2:
             return
 
         if rank_key := next((k for k in state_dict if k.endswith((".lora_down.weight", ".hada_w1_a"))), None):

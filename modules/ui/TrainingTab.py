@@ -552,7 +552,7 @@ class TrainingTab:
 
         # Selective Diff2Flow Timesteps
         sel_diff_ts_label = components.label(frame, 6, 0, "Selective Diff2Flow Timesteps",
-                         tooltip="Use Diff2flow on: 1000 to x selected timesteps. e.g: 1000-950.")
+                         tooltip="Diff2Flow Loss for samples at or above the threshold. e.g: 1000-950.")
         sel_diff_ts_label.configure(wraplength=130, justify="left")
         components.entry(frame, 6, 1, self.ui_state, "selective_diff2flow_timesteps")
 

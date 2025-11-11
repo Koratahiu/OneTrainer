@@ -244,9 +244,8 @@ class BaseStableDiffusionXLSetup(
             )
             added_cond_kwargs = {"text_embeds": pooled_text_encoder_2_output, "time_ids": add_time_ids}
 
-            # Standard path if diff2flow is disabled
+            # Standard path if diff2flow or selective_diff2flow is disabled
             if not config.diff2flow and not config.selective_diff2flow:
-                # This is the original standard diffusion training path
                 scaled_latent_conditioning_image = None
                 if config.model_type.has_conditioning_image_input():
                     scaled_latent_conditioning_image = batch['latent_conditioning_image'] * vae_scaling_factor
@@ -281,22 +280,21 @@ class BaseStableDiffusionXLSetup(
                 else:
                     latent_input = scaled_noisy_latent_image
 
-                predicted_latent_noise = model.unet(
+                predicted_from_unet = model.unet(
                     sample=latent_input.to(dtype=model.train_dtype.torch_dtype()),
                     timestep=timestep,
                     encoder_hidden_states=text_encoder_output.to(dtype=model.train_dtype.torch_dtype()),
                     added_cond_kwargs=added_cond_kwargs,
                 ).sample
 
-                model_output_data = {'predicted': predicted_latent_noise, 'timestep': timestep}
+                model_output_data = {'loss_type': 'target', 'predicted': predicted_from_unet, 'timestep': timestep}
                 if model.noise_scheduler.config.prediction_type == 'epsilon':
                     model_output_data['target'] = latent_noise
                 elif model.noise_scheduler.config.prediction_type == 'v_prediction':
                     model_output_data['target'] = model.noise_scheduler.get_velocity(
                         scaled_latent_image, latent_noise, timestep
                     )
-
-            else: # handles diff2flow and the new hybrid mode
+            else:  # diff2flow and the new hybrid mode
                 # Get timesteps for the whole batch
                 discrete_timestep = self._get_timestep_discrete(
                     model.noise_scheduler.config['num_train_timesteps'],
@@ -322,17 +320,19 @@ class BaseStableDiffusionXLSetup(
                 if use_flow_mask.any():
                     flow_indices = torch.where(use_flow_mask)[0]
                     flow_timesteps = discrete_timestep[flow_indices]
+                    num_train_timesteps = model.noise_scheduler.config['num_train_timesteps']
 
                     # Reverse OT timesteps to align with diff2flow logic
-                    flow_timesteps_reversed = 999 - flow_timesteps
+                    flow_timesteps_reversed = (num_train_timesteps - 1) - flow_timesteps
 
                     flow_latent_noise = self._create_noise(
-                        scaled_latent_image[flow_indices], config, generator, flow_timesteps, model.noise_scheduler.betas,
+                        scaled_latent_image[flow_indices], config, generator, flow_timesteps,
+                        model.noise_scheduler.betas,
                     )
 
                     target_velocity = scaled_latent_image[flow_indices] - flow_latent_noise
 
-                    t_continuous = flow_timesteps_reversed / 1000
+                    t_continuous = flow_timesteps_reversed.float() / num_train_timesteps
                     t_reshaped = t_continuous.reshape(-1, *([1] * (scaled_latent_image.dim() - 1)))
                     xt_flow = (1 - t_reshaped) * flow_latent_noise + t_reshaped * scaled_latent_image[flow_indices]
 
@@ -349,11 +349,13 @@ class BaseStableDiffusionXLSetup(
                     std_timesteps = discrete_timestep[std_indices]
 
                     std_latent_noise = self._create_noise(
-                        scaled_latent_image[std_indices], config, generator, std_timesteps, model.noise_scheduler.betas,
+                        scaled_latent_image[std_indices], config, generator, std_timesteps,
+                        model.noise_scheduler.betas,
                     )
 
                     scaled_noisy_latent_image = self._add_noise_discrete(
-                        scaled_latent_image[std_indices], std_latent_noise, std_timesteps, model.noise_scheduler.betas,
+                        scaled_latent_image[std_indices], std_latent_noise, std_timesteps,
+                        model.noise_scheduler.betas,
                     )
 
                     combined_unet_sample[std_indices] = scaled_noisy_latent_image
@@ -374,21 +376,21 @@ class BaseStableDiffusionXLSetup(
                     added_cond_kwargs=added_cond_kwargs,
                 ).sample
 
-                # The 'predicted' value for the flow path needs conversion before loss calculation.
-                # We pass the raw output and necessary context to calculate_loss.
+                # Pass raw output and context to calculate_loss for conversion
                 model_output_data = {
+                    'loss_type': 'target',
                     'predicted': predicted_from_unet,
                     'target': combined_target,
                     'timestep': discrete_timestep,
                     'use_flow_mask': use_flow_mask,
-                    'flow_context': { # Pass data needed to convert prediction back to velocity
-                        'dm_x': combined_unet_sample, # This is dm_x for flow samples
-                        'dm_t': combined_unet_timestep # This is dm_t for flow samples
+                    'flow_context': {
+                        'dm_x': combined_unet_sample,
+                        'dm_t': combined_unet_timestep
                     }
                 }
 
-            model_output_data['prediction_type'] = model.noise_scheduler.config.prediction_type
-            return model_output_data
+        model_output_data['prediction_type'] = model.noise_scheduler.config.prediction_type
+        return model_output_data
 
     def calculate_loss(
             self,
@@ -409,48 +411,63 @@ class BaseStableDiffusionXLSetup(
                 betas=model.noise_scheduler.betas,
             ).mean()
 
-        final_predicted = data['predicted']
-        # We only need to modify the target to match the prediction's space.
-        final_target = data['target'].clone()
+        # Hybrid/Flow path: Calculate losses for each part of the batch separately
+        batch_size = data['predicted'].shape[0]
+        per_sample_losses = torch.zeros(batch_size, device=self.train_device)
 
-        # For the flow-based samples, convert their target from the
-        # flow-matching space back to the standard diffusion space.
-        if use_flow_mask.any():
-            flow_indices = torch.where(use_flow_mask)[0]
+        # Part 1: Standard Diffusion Loss for samples below the threshold
+        std_indices = torch.where(~use_flow_mask)[0]
+        if len(std_indices) > 0:
+            std_data = {
+                'loss_type': 'target',
+                'predicted': data['predicted'][std_indices],
+                'target': data['target'][std_indices],
+                'timestep': data['timestep'][std_indices],
+                'prediction_type': data['prediction_type'],
+            }
+            std_batch = {k: v[std_indices] for k, v in batch.items() if
+                         isinstance(v, Tensor) and v.shape[0] == batch_size}
 
-            # Get the necessary context for conversion
+            loss_std = self._diffusion_losses(
+                batch=std_batch,
+                data=std_data,
+                config=config,
+                train_device=self.train_device,
+                betas=model.noise_scheduler.betas,
+            )
+            per_sample_losses[std_indices] = loss_std
+
+        # Part 2: Diff2Flow Loss for samples at or above the threshold
+        flow_indices = torch.where(use_flow_mask)[0]
+        if len(flow_indices) > 0:
             flow_context = data['flow_context']
+            unet_output_flow = data['predicted'][flow_indices]
+            target_velocity_flow = data['target'][flow_indices]
             dm_x = flow_context['dm_x'][flow_indices]
             dm_t = flow_context['dm_t'][flow_indices]
 
-            # This is the ground-truth flow velocity u_t = x_1 - x_0
-            u_target_for_flow_samples = final_target[flow_indices]
-
-            # Convert the u_target into the model's native prediction space.
-            eps_target = model._df_predict_eps_from_z_and_v(dm_x, dm_t, u_target_for_flow_samples).to(dtype=model.train_dtype.torch_dtype())
-
+            # Convert the UNet's native output (eps/v) to velocity space for the loss calculation
             if model.noise_scheduler.config.prediction_type == 'v_prediction':
-                # Convert the epsilon target to the final v-target.
-                v_target = model.noise_scheduler.get_velocity(dm_x, eps_target, dm_t)
-                final_target[flow_indices] = v_target.to(dtype=model.train_dtype.torch_dtype())
+                predicted_velocity = model._df_get_vector_field_from_v(unet_output_flow, dm_x, dm_t)
+            else:  # 'epsilon'
+                predicted_velocity = model._df_get_vector_field_from_eps(unet_output_flow, dm_x, dm_t)
 
-            elif model.noise_scheduler.config.prediction_type == 'epsilon':
-                # The target is already in the correct epsilon space.
-                final_target[flow_indices] = eps_target
+            flow_data = {
+                'loss_type': 'target',
+                'predicted': predicted_velocity,
+                'target': target_velocity_flow,
+                'timestep': data['timestep'][flow_indices],
+                'prediction_type': data['prediction_type'],
+            }
+            flow_batch = {k: v[flow_indices] for k, v in batch.items() if
+                          isinstance(v, Tensor) and v.shape[0] == batch_size}
 
-        loss_data = {
-            'predicted': final_predicted,
-            'target': final_target,
-            'timestep': data['timestep'],
-            'loss_type': 'target',
-            'prediction_type': data['prediction_type'],
-        }
+            loss_flow = self._flow_matching_losses(
+                batch=flow_batch,
+                data=flow_data,
+                config=config,
+                train_device=self.train_device,
+            )
+            per_sample_losses[flow_indices] = loss_flow
 
-        # The standard loss function can now handle the entire batch uniformly.
-        return self._diffusion_losses(
-            batch=batch,
-            data=loss_data,
-            config=config,
-            train_device=self.train_device,
-            betas=model.noise_scheduler.betas,
-        ).mean()
+        return per_sample_losses.mean()

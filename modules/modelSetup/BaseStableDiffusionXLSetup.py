@@ -295,7 +295,7 @@ class BaseStableDiffusionXLSetup(
                     model_output_data['target'] = model.noise_scheduler.get_velocity(
                         scaled_latent_image, latent_noise, timestep
                     )
-                
+
             else: # handles diff2flow and the new hybrid mode
                 # Get timesteps for the whole batch
                 discrete_timestep = self._get_timestep_discrete(
@@ -307,7 +307,7 @@ class BaseStableDiffusionXLSetup(
                 )
 
                 # Determine which samples use which training objective
-                diff2flow_threshold = 950 # TODO UI expose?
+                diff2flow_threshold = config.selective_diff2flow_timesteps
                 use_flow_mask = torch.ones_like(discrete_timestep, dtype=torch.bool) if not config.selective_diff2flow else (discrete_timestep >= diff2flow_threshold)
 
                 # Prepare combined tensors for UNet input
@@ -317,28 +317,28 @@ class BaseStableDiffusionXLSetup(
 
                 # Prepare combined tensors for loss calculation
                 combined_target = torch.zeros_like(scaled_latent_image)
-                
+
                 # Path 1: Diff2Flow
                 if use_flow_mask.any():
                     flow_indices = torch.where(use_flow_mask)[0]
                     flow_timesteps = discrete_timestep[flow_indices]
-                    
+
                     # Reverse OT timesteps to align with diff2flow logic
                     flow_timesteps_reversed = 999 - flow_timesteps
-                    
+
                     flow_latent_noise = self._create_noise(
                         scaled_latent_image[flow_indices], config, generator, flow_timesteps, model.noise_scheduler.betas,
                     )
-                    
+
                     target_velocity = scaled_latent_image[flow_indices] - flow_latent_noise
-                    
+
                     t_continuous = flow_timesteps_reversed / 1000
                     t_reshaped = t_continuous.reshape(-1, *([1] * (scaled_latent_image.dim() - 1)))
                     xt_flow = (1 - t_reshaped) * flow_latent_noise + t_reshaped * scaled_latent_image[flow_indices]
-                    
+
                     dm_t_continuous = model._df_convert_fm_t_to_dm_t(t_continuous)
                     dm_x = model._df_convert_fm_xt_to_dm_xt(xt_flow, t_continuous)
-                    
+
                     combined_unet_sample[flow_indices] = dm_x.to(dtype=model.train_dtype.torch_dtype())
                     combined_unet_timestep[flow_indices] = dm_t_continuous
                     combined_target[flow_indices] = target_velocity
@@ -347,15 +347,15 @@ class BaseStableDiffusionXLSetup(
                 if not use_flow_mask.all():
                     std_indices = torch.where(~use_flow_mask)[0]
                     std_timesteps = discrete_timestep[std_indices]
-                    
+
                     std_latent_noise = self._create_noise(
                         scaled_latent_image[std_indices], config, generator, std_timesteps, model.noise_scheduler.betas,
                     )
-                    
+
                     scaled_noisy_latent_image = self._add_noise_discrete(
                         scaled_latent_image[std_indices], std_latent_noise, std_timesteps, model.noise_scheduler.betas,
                     )
-                    
+
                     combined_unet_sample[std_indices] = scaled_noisy_latent_image
                     combined_unet_timestep[std_indices] = std_timesteps.float()
 
@@ -373,7 +373,7 @@ class BaseStableDiffusionXLSetup(
                     encoder_hidden_states=text_encoder_output.to(dtype=model.train_dtype.torch_dtype()),
                     added_cond_kwargs=added_cond_kwargs,
                 ).sample
-                
+
                 # The 'predicted' value for the flow path needs conversion before loss calculation.
                 # We pass the raw output and necessary context to calculate_loss.
                 model_output_data = {
@@ -398,7 +398,7 @@ class BaseStableDiffusionXLSetup(
             config: TrainConfig,
     ) -> Tensor:
         use_flow_mask = data.get('use_flow_mask')
-        
+
         # If no mask, it's a standard batch, use the original loss function
         if use_flow_mask is None:
             return self._diffusion_losses(

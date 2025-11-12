@@ -13,7 +13,6 @@ from modules.util.enum.NoiseScheduler import NoiseScheduler
 from modules.util.enum.VideoFormat import VideoFormat
 from modules.util.image_util import load_image
 from modules.util.torch_util import torch_gc
-from modules.modelSetup.mixin.ModelSetupNoiseMixin import ModelSetupNoiseMixin
 
 import torch
 from torch import nn
@@ -35,9 +34,6 @@ class StableDiffusionSampler(BaseModelSampler):
         self.model = model
         self.model_type = model_type
         self.pipeline = model.create_pipeline()
-
-        # We need an instance to access the psi schedule calculation method
-        self._noise_mixin_helper = ModelSetupNoiseMixin()
 
     @torch.no_grad()
     def __sample_diff2flow(
@@ -153,19 +149,6 @@ class StableDiffusionSampler(BaseModelSampler):
             else:
                 generator.manual_seed(seed)
 
-            # This variable will hold the specific offset noise instance used for this generation
-            offset_noise_instance = None
-            psi_schedule = None # To hold the calculated schedule
-
-            if generalized_offset_noise and offset_noise_weight > 0.0:
-                # We need the psi_t schedule for inference. We can get it from the model's noise scheduler betas.
-                # Assuming the pipeline's scheduler is the same one used for training.
-                psi_schedule = self._noise_mixin_helper._compute_and_cache_offset_noise_psi_schedule(self.pipeline.scheduler.betas)
-                psi_schedule = psi_schedule.to(
-                    device=self.train_device,
-                    dtype=self.model.train_dtype.torch_dtype()
-                )
-
             noise_scheduler = create.create_noise_scheduler(noise_scheduler, self.pipeline.scheduler, diffusion_steps)
             image_processor = self.pipeline.image_processor
             unet = self.pipeline.unet
@@ -217,17 +200,13 @@ class StableDiffusionSampler(BaseModelSampler):
             # Apply Generalized Offset Noise if enabled
             if generalized_offset_noise and offset_noise_weight > 0:
                 offset_noise_shape = (latent_image.shape[0], latent_image.shape[1], 1, 1)
-                offset_noise_instance = torch.randn(
+                offset_noise = torch.randn(
                     offset_noise_shape,
                     generator=generator,
                     device=self.train_device,
                     dtype=self.model.train_dtype.torch_dtype(),
-                )
-                
-                # For GON, the paper's "balanced" strategy ensures ψ_T ≈ 1, so initializing with
-                # `latent + weight * ξ` is correct. For standard offset noise, it's the same.
-                latent_image = latent_image + (offset_noise_instance * offset_noise_weight)
-
+                ) * offset_noise_weight
+                latent_image = latent_image + offset_noise
 
             # denoising loop
             extra_step_kwargs = {}
@@ -261,18 +240,6 @@ class StableDiffusionSampler(BaseModelSampler):
                     noise_pred = (
                             cfg_rescale * noise_pred_rescaled + (1 - cfg_rescale) * noise_pred
                     )
-
-                if generalized_offset_noise and offset_noise_instance is not None and psi_schedule is not None:
-                    # Get the psi value for the current timestep
-                    # `timestep` is a scalar tensor here, so the result is also a scalar
-                    current_psi = psi_schedule[timestep]
-                    
-                    # Reshape for broadcasting
-                    current_psi_reshaped = current_psi.view(1, *[1 for _ in range(noise_pred.ndim - 1)])
-
-                    # The model predicted `ε + ψ_t * ξ * weight`. We subtract the offset part.
-                    # We subtract it from the *guided* prediction.
-                    noise_pred = noise_pred - (current_psi_reshaped * offset_noise_instance * offset_noise_weight)
 
                 # compute the previous noisy sample x_t -> x_t-1
                 latent_image = noise_scheduler.step(

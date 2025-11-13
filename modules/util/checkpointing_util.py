@@ -256,7 +256,8 @@ def enable_checkpointing_for_basic_transformer_blocks(
         offload_enabled: bool,
 ) -> LayerOffloadConductor:
     return enable_checkpointing(model, config, config.compile, [
-            (BasicTransformerBlock  ,        []),
+            (BasicTransformerBlock, []),
+            (nn.Conv2d,             []), 
         ],
         offload_enabled = offload_enabled,
     )

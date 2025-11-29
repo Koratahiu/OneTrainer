@@ -1099,6 +1099,7 @@ def create_optimizer(
                 slice_p=optimizer_config.slice_p if optimizer_config.slice_p is not None else 1,
                 prodigy_steps=optimizer_config.prodigy_steps if optimizer_config.prodigy_steps is not None else 0,
                 d_limiter=optimizer_config.d_limiter if optimizer_config.d_limiter is not None else False,
+                per_shape_dadapt=optimizer_config.per_shape_dadapt if optimizer_config.per_shape_dadapt is not None else False,
                 use_atan2=optimizer_config.use_atan2 if optimizer_config.use_atan2 is not None else False,
                 cautious_mask=optimizer_config.cautious_mask if optimizer_config.cautious_mask is not None else False,
                 grams_moment=optimizer_config.grams_moment if optimizer_config.grams_moment is not None else False,

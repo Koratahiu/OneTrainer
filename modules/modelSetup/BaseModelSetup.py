@@ -106,6 +106,32 @@ class BaseModelSetup(
         parameters = model.parameters.display_name_mapping
 
         reported_learning_rates = {}
+
+        # Handle Prodigy_adv per-shape D-adaptation (dlr) reporting
+        if hasattr(model.optimizer, 'per_shape_dadapt') and model.optimizer.per_shape_dadapt and model.optimizer.shape_helper:
+            # When per-shape D-adaptation is active, Prodigy_adv internally calculates 
+            # d per shape, and dlr = d * lr_group.
+            # We report d here, as the base learning rate (lr_group) is typically 1.0.
+            shape_d_values = model.optimizer.shape_helper.get_shape_d_values()
+
+            d_values = list(shape_d_values.values())
+
+            if d_values:
+                min_d = min(d_values)
+                max_d = max(d_values)
+                mean_d = sum(d_values) / len(d_values)
+
+                # Report the min, max, and mean D-adaptation values
+                tensorboard.add_scalar(
+                    "d_global/min", min_d, model.train_progress.global_step
+                )
+                tensorboard.add_scalar(
+                    "d_global/max", max_d, model.train_progress.global_step
+                )
+                tensorboard.add_scalar(
+                    "d_global/mean", mean_d, model.train_progress.global_step
+                )
+
         for lr, parameter in zip(lrs, parameters, strict=True):
             # only use the prefix. this prevents multiple embedding reports. TODO: find a better solution
             name = parameter.split('/')[0]

@@ -472,6 +472,7 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "slice_p": 11,
         "prodigy_steps": 0,
         "d_limiter": False,
+        "per_shape_dadapt": False,
         "use_atan2": False,
         "cautious_mask": False,
         "grams_moment": False,

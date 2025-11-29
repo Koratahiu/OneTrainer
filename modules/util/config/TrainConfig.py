@@ -124,6 +124,7 @@ class TrainOptimizerConfig(BaseConfig):
     kourkoutas_beta: False
     k_warmup_steps: int
     schedulefree_c: float
+    per_shape_dadapt: True
 
     def __init__(self, data: list[(str, Any, type, bool)]):
         super().__init__(data)
@@ -223,6 +224,7 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("kourkoutas_beta", False, bool, False))
         data.append(("k_warmup_steps", None, int, True))
         data.append(("schedulefree_c", None, float, True))
+        data.append(("per_shape_dadapt", False, bool, False))
 
         return TrainOptimizerConfig(data)
 

@@ -132,7 +132,7 @@ class StableDiffusionSampler(BaseModelSampler):
             on_update_progress: Callable[[int, int], None] = lambda _, __: None,
     ) -> ModelSamplerOutput:
         # Dispatch to Diff2Flow sampler if requested
-        if diffusion_to_flow_matching:
+        if False:
             return self.__sample_diff2flow(
                 prompt=prompt, negative_prompt=negative_prompt, height=height, width=width,
                 seed=seed, random_seed=random_seed, diffusion_steps=diffusion_steps,

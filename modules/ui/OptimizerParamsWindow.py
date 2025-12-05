@@ -197,6 +197,7 @@ class OptimizerParamsWindow(ctk.CTkToplevel):
             'cautious_wd': {'title': 'Cautious Weight Decay', 'tooltip': 'Applies weight decay only to parameter coordinates whose signs align with the optimizer update direction. This preserves the original optimization objective while still benefiting from regularization effects, leading to improved convergence and better final performance.', 'type': 'bool'},
             'kappa_p': {'title': 'Lion-K P-value', 'tooltip': 'Controls the Lp-norm geometry for the Lion update. 1.0 = Standard Lion (Sign update, coordinate-wise), best for Transformers. 2.0 = Spherical Lion (Normalized update, rotational invariant), best for Conv2d layers/Norms. Values between 1.0 and 2.0 interpolate behavior between the two.', 'type': 'float'},
             'auto_kappa_p': {'title': 'Auto Lion-K', 'tooltip': 'Automatically determines the optimal kappa_p based on parameter dimensions. Uses p=2.0 (Spherical) for 4D (Conv) and 1D (Bias/Norm) tensors for stability and rotational invariance, and p=1.0 (Sign) for 2D (Linear) tensors for sparsity. Overrides the manual P-value.', 'type': 'bool'},
+            'approx_mars': {'title': 'Approx MARS-M', 'tooltip': 'Enables Approximated MARS-M, a variance reduction technique. It accelerates convergence by correcting gradients using the previous step\'s information. This approximated version requires additional state to store the previous gradient.', 'type': 'bool'},
         }
         # @formatter:on
 

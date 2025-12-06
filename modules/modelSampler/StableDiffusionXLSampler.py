@@ -108,7 +108,7 @@ class StableDiffusionXLSampler(BaseModelSampler):
 
                 velocity_uncond, velocity_cond = velocity_pred.chunk(2)
                 velocity = velocity_uncond + cfg_scale * (velocity_cond - velocity_uncond)
-                latent_image = latent_image + dt * velocity
+                latent_image = latent_image - dt * velocity
                 on_update_progress(i + 1, diffusion_steps)
 
             self.model.unet_to(self.temp_device)
@@ -145,7 +145,7 @@ class StableDiffusionXLSampler(BaseModelSampler):
             on_update_progress: Callable[[int, int], None] = lambda _, __: None,
     ) -> ModelSamplerOutput:
         # Dispatch to Diff2Flow sampler if requested
-        if False:
+        if diffusion_to_flow_matching:
             return self.__sample_diff2flow(
                 prompt=prompt, negative_prompt=negative_prompt, height=height, width=width,
                 seed=seed, random_seed=random_seed, diffusion_steps=diffusion_steps,

@@ -551,7 +551,7 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "cautious_mask": False,
         "orthogonal_gradient": False,
         "kappa_p": 1.0,
-        "auto_kappa_p": False,
+        "auto_kappa_p": True,
     },
     Optimizer.LION_PRODIGY_ADV: {
         "beta1": 0.9,
@@ -573,7 +573,7 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "cautious_mask": False,
         "orthogonal_gradient": False,
         "kappa_p": 1.0,
-        "auto_kappa_p": False,
+        "auto_kappa_p": True,
     },
     Optimizer.MUON_ADV: {
         "beta1": 0.9,

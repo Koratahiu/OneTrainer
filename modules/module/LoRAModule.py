@@ -308,9 +308,6 @@ class LoKrModule(PeftBase):
         self.tucker = False
         self.lokr_dora_scale = None
 
-        # Cache shapes for the forward pass
-        self.in_m = self.in_n = self.out_l = self.out_k = None
-
         if orig_module is not None:
             self.initialize_weights()
             self.alpha = self.alpha.to(orig_module.weight.device)
@@ -327,10 +324,6 @@ class LoKrModule(PeftBase):
                 in_m, in_n = factorization(in_dim, self.decompose_factor)
                 out_l, out_k = factorization(out_dim, self.decompose_factor)
                 shape = ((out_l, out_k), (in_m, in_n))
-
-                # Store factorization shapes for the forward pass
-                self.in_m, self.in_n = in_m, in_n
-                self.out_l, self.out_k = out_l, out_k
 
                 # Create w1, or w1_a and w1_b
                 if self.decompose_both and lokr_dim < max(shape[0][0], shape[1][0]) / 2:
@@ -397,8 +390,8 @@ class LoKrModule(PeftBase):
             nn.init.kaiming_uniform_(self.lokr_w2_a, a=math.sqrt(5))
             nn.init.constant_(self.lokr_w2_b, 0)
 
-    def _get_factors(self):
-        """Returns the two kronecker components W1 and W2."""
+    def get_weight(self, dtype):
+        """Computes the LoKr delta weight."""
         # If using DoRA (weight_decompose), we want clean weights here so we can
         # apply dropout to the input 'x' later.
         # If not using DoRA, we apply dropout to the internal factors here.
@@ -415,11 +408,10 @@ class LoKrModule(PeftBase):
         else:
             w2 = d(self.lokr_w2_a) @ d(self.lokr_w2_b)
 
-        return w1, w2
+        # Cast before reconstruction
+        #w1 = w1.to(dtype=dtype)
+        #w2 = w2.to(dtype=dtype)
 
-    def get_weight(self):
-        """Computes the full LoKr weight matrix (slow, used for Conv2d or DoRA)."""
-        w1, w2 = self._get_factors()
         weight = make_kron(w1, w2.to(w1.dtype))
         weight = weight.view(self.shape)
 
@@ -455,7 +447,7 @@ class LoKrModule(PeftBase):
             else:
                 orig_weight = self.orig_module.weight.detach().float()
 
-            delta_w = self.get_weight() * scale
+            delta_w = self.get_weight(dtype=x.dtype) * scale
             wp = orig_weight + delta_w
             del orig_weight
 
@@ -469,32 +461,9 @@ class LoKrModule(PeftBase):
 
             # Apply dropout to the input 'x' (DoRA style)
             return self.op(self.dropout(x), wp.to(x.dtype), self.orig_module.bias, **self.layer_kwargs)
-
         else:
-            if isinstance(self.orig_module, nn.Linear):
-                # Apply W1 and W2 sequentially via einsum instead of 
-                # constructing the full Kronecker product.
-                w1, w2 = self._get_factors()
-
-
-                x_shape = x.shape
-                x_reshaped = x.reshape(-1, self.in_m, self.in_n)
-
-                # Calculate delta = x @ (W1 x W2).T
-                delta_output = torch.einsum(
-                    'bmn, lm, kn -> blk', 
-                    x_reshaped, w1.to(x.dtype), w2.to(x.dtype)
-                )
-
-                # Reshape back to [Batch, ..., Out_Features]
-                delta_output = delta_output.reshape(*x_shape[:-1], -1) * scale
-
-                return self.orig_forward(x) + delta_output
-
-            else:
-                # Fallback for Conv2d layers (reconstruction is usually safer/simpler here)
-                w = self.get_weight() * scale
-                return self.orig_forward(x) + self.op(x, w.to(x.dtype), bias=None, **self.layer_kwargs)
+            w = self.get_weight(dtype=x.dtype) * scale
+            return self.orig_forward(x) + self.op(x, w.to(x.dtype), bias=None, **self.layer_kwargs)
 
     def apply_to_module(self):
         # TODO

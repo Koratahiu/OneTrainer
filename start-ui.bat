@@ -60,6 +60,14 @@ if errorlevel 1 (
 
 :launch
 echo Starting UI...
+
+REM --- BEGIN ADDED DEBUGGING ENVIRONMENT VARIABLES ---
+echo Setting PyTorch/TorchDynamo debug variables...
+set TORCHDYNAMO_VERBOSE=1
+set TORCH_LOGS=recompiles
+echo TORCHDYNAMO_VERBOSE=%TORCHDYNAMO_VERBOSE%
+
+
 %PYTHON% scripts\train_ui.py
 if errorlevel 1 (
     echo Error: UI script exited with code %ERRORLEVEL%

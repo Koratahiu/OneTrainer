@@ -17,6 +17,7 @@ from modules.modelSaver.BaseModelSaver import BaseModelSaver
 from modules.modelSetup.BaseModelSetup import BaseModelSetup
 from modules.trainer.BaseTrainer import BaseTrainer
 from modules.util import create, path_util
+from modules.util.attn.flash_attn_win import disable_flash_attn_win, enable_flash_attn_win
 from modules.util.bf16_stochastic_rounding import set_seed as bf16_stochastic_rounding_set_seed
 from modules.util.callbacks.TrainCallbacks import TrainCallbacks
 from modules.util.commands.TrainCommands import TrainCommands
@@ -88,6 +89,8 @@ class GenericTrainer(BaseTrainer):
         if self.config.train_dtype.enable_tf():
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
+
+        self.__apply_flash_attn_fallback()
 
         self.model_loader = self.create_model_loader()
         self.model_setup = self.create_model_setup()
@@ -760,6 +763,54 @@ class GenericTrainer(BaseTrainer):
                         else:
                             multi.reduce_grads_mean(self.parameters, self.config.gradient_reduce_precision)
 
+                        beta_t_log = None
+
+                        if getattr(self.config.optimizer, "mdlrc", True):
+                            total_steps = int(
+                                current_epoch_length * self.config.epochs / self.config.gradient_accumulation_steps)
+                            current_step = train_progress.global_step // self.config.gradient_accumulation_steps
+
+                            # Calculate warmup steps to check if we are past it
+                            warmup_steps_config = self.config.learning_rate_warmup_steps
+                            if warmup_steps_config > 1:
+                                warmup_steps = int(warmup_steps_config / self.config.gradient_accumulation_steps)
+                            elif 0 < warmup_steps_config <= 1:
+                                warmup_steps = int(warmup_steps_config * total_steps)
+                            else:
+                                warmup_steps = 0
+
+                            if total_steps > 0 and current_step >= warmup_steps:
+                                tau = current_step / total_steps
+                                if tau > 1.0: tau = 1.0
+                                elif tau < 0.0: tau = 0.0
+
+                                # Use configured beta1 as beta0
+                                beta0 = self.config.optimizer.beta1 if self.config.optimizer.beta1 is not None else 0.9
+
+                                for group in self.model.optimizer.param_groups:
+                                    if "betas" in group:
+                                        # Calculate MDLRC values
+                                        denom = (1.0 - beta0) + beta0 * (1.0 - tau)
+                                        if denom == 0: continue
+
+                                        beta_t = beta0 * (1.0 - tau) / denom
+                                        beta_t_log = beta_t
+
+                                        # Check div by zero for lr_scale
+                                        if (1.0 - beta_t) == 0:
+                                            lr_scale = 1.0
+                                        else:
+                                            lr_scale = (1.0 - beta0) / (1.0 - beta_t)
+
+                                        # Apply to optimizer
+                                        betas = group["betas"]
+                                        if len(betas) == 2:
+                                            group["betas"] = (beta_t, betas[1])
+                                        elif len(betas) == 3:
+                                            group["betas"] = (beta_t, betas[1], betas[2])
+
+                                        group["lr"] *= lr_scale
+
                         if scaler and self.config.optimizer.optimizer.supports_fused_back_pass() and self.config.optimizer.fused_back_pass:
                             scaler.step_after_unscale_parameter_(self.model.optimizer)
                             scaler.update()
@@ -782,6 +833,10 @@ class GenericTrainer(BaseTrainer):
                             self.model_setup.report_to_tensorboard(
                                 self.model, self.config, lr_scheduler, self.tensorboard
                             )
+
+                            if beta_t_log is not None:
+                                self.tensorboard.add_scalar("optimizer/beta1", beta_t_log, train_progress.global_step)
+                                self.tensorboard.add_scalar("optimizer/lr_scale", lr_scale, train_progress.global_step)
 
                             accumulated_loss_cpu = accumulated_loss.item()
                             if math.isnan(accumulated_loss_cpu):

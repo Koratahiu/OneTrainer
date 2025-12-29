@@ -609,6 +609,14 @@ class GenericTrainer(BaseTrainer):
             torch.clear_autocast_cache()
             self.model.optimizer.eval()
 
+
+    def __apply_flash_attn_fallback(self):
+        if self.config.use_flash_attn_fallback:
+            enable_flash_attn_win()
+        else:
+            disable_flash_attn_win()
+
+
     def train(self):
         train_device = torch.device(self.config.train_device)
 

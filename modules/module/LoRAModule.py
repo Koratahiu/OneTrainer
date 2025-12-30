@@ -444,10 +444,7 @@ class OFTModule(PeftBase):
         # For Conv2d, we must rotate the weights, not the input, to preserve spatial information.
 
         # Apply Scale
-        if self.oft_scale != 1.0:
-            effective_weight = self.oft_R.weight * self.oft_scale
-        else:
-            effective_weight = self.oft_R.weight
+        effective_weight = self.oft_R.weight * self.oft_scale if self.oft_scale != 1.0 else self.oft_R.weight
 
         orth_rotate = self.oft_R._cayley_batch(
             effective_weight, self.oft_R.block_size, self.oft_R.use_cayley_neumann, self.oft_R.num_cayley_neumann_terms
@@ -689,7 +686,7 @@ class LoRAModuleWrapper:
             print("\n".join(summary_lines))
 
         # Apply scaling based on max block size
-        if self.peft_type == PeftType.OFT_2:
+        if self.peft_type == PeftType.OFT_2 and config.oft_sqrt_scaling:
             oft_modules = [m for m in lora_modules.values() if isinstance(m, OFTModule)]
             if oft_modules:
                 # Find the largest block size used in the network

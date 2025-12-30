@@ -538,6 +538,7 @@ class TrainConfig(BaseConfig):
     coft_eps: float
     oft_block_share: bool
     compile_oft_cayley: bool
+    oft_sqrt_scaling: bool
 
     # optimizer
     optimizer: TrainOptimizerConfig
@@ -1170,6 +1171,7 @@ class TrainConfig(BaseConfig):
         data.append(("coft_eps", 1e-4, float, False))
         data.append(("oft_block_share", False, bool, False))
         data.append(("compile_oft_cayley", False, bool, False))
+        data.append(("oft_sqrt_scaling", False, bool, False))
 
         # optimizer
         data.append(("optimizer", TrainOptimizerConfig.default_values(), TrainOptimizerConfig, False))

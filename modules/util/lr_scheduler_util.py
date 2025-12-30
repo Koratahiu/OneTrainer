@@ -1,5 +1,6 @@
 import math
 from collections.abc import Callable
+from typing import Any
 
 
 def lr_lambda_warmup(warmup_steps: int, lr_lambda: Callable[[int], float]):
@@ -99,6 +100,30 @@ def lr_lambda_rex(
 
     return lr_lambda
 
+def lr_lambda_mdlrc(
+        scheduler_steps: int,
+        optimizer: Any,
+        min_factor: float = 1.0,
+        beta0: float = 0.9,
+):
+    def lr_lambda(current_step: int):
+        # https://arxiv.org/abs/2404.07946v1
+        tau = min(1.0, max(0.0, float(current_step) / float(scheduler_steps))) if scheduler_steps > 0 else 1.0
+        denom = (1.0 - beta0) + beta0 * (1.0 - tau)
+        beta_t = beta0 * (1.0 - tau) / denom
+        lr_scale = (1.0 - beta0) / (1.0 - beta_t)
+        for group in optimizer.param_groups:
+            if "betas" in group:
+                betas = group["betas"]
+                if len(betas) == 2:
+                    group["betas"] = (beta_t, betas[1])
+                elif len(betas) == 3:
+                    group["betas"] = (beta_t, betas[1], betas[2])
+
+        factor = apply_min_factor(lr_scale, min_factor)
+        return factor
+
+    return lr_lambda
 
 def apply_min_factor(value: float, min_factor: float) -> float:
     return min_factor + (1.0 - min_factor) * value

@@ -152,6 +152,7 @@ from modules.util.lr_scheduler_util import (
     lr_lambda_cosine_with_hard_restarts,
     lr_lambda_cosine_with_restarts,
     lr_lambda_linear,
+    lr_lambda_mdlrc,
     lr_lambda_rex,
     lr_lambda_warmup,
 )
@@ -1605,6 +1606,16 @@ def create_lr_scheduler(
                 optimizer,
                 initial_lr=optimizer.state_dict()['param_groups'][0]['initial_lr'],
             )
+
+        case LearningRateScheduler.MDLRC:
+            beta1 = config.optimizer.beta1 if config.optimizer.beta1 is not None else config.optimizer.momentum if config.optimizer.momentum is not None else 0.9
+            lr_lambda = lr_lambda_mdlrc(
+                scheduler_steps,
+                optimizer,
+                min_factor,
+                beta1
+            )
+
         case LearningRateScheduler.CUSTOM:
             # Special case. Unlike the others, we return from here.
             if not config.custom_learning_rate_scheduler:

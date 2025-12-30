@@ -119,6 +119,8 @@ def lr_lambda_mdlrc(
                     group["betas"] = (beta_t, betas[1])
                 elif len(betas) == 3:
                     group["betas"] = (beta_t, betas[1], betas[2])
+            elif "momentum" in group:
+                group["momentum"] = beta_t
 
         factor = apply_min_factor(lr_scale, min_factor)
         return factor

@@ -9,6 +9,7 @@ class LearningRateScheduler(Enum):
     COSINE_WITH_HARD_RESTARTS = 'COSINE_WITH_HARD_RESTARTS'
     REX = 'REX'
     ADAFACTOR = 'ADAFACTOR'
+    MDLRC = 'MDLRC'
     CUSTOM = 'CUSTOM'
 
     def __str__(self):

@@ -126,7 +126,7 @@ class ModelSetupNoiseMixin(metaclass=ABCMeta):
 
         Maps timesteps < t_tilde to shared values within n sub-intervals.
         """
-        if not getattr(config, 'etsdm_enabled', True):
+        if not getattr(config, 'etsdm_enabled', False):
             return timestep
 
         # Paper defaults: t_tilde=100, n=5 (for T=1000)

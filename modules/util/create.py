@@ -1652,7 +1652,7 @@ def create_lr_scheduler(
             if warmup_steps > 0:
                 warmup_scheduler = LambdaLR(
                     optimizer=optimizer,
-                    lr_lambda=lr_lambda_warmup(warmup_steps, lr_lambda_constant()),
+                    lr_lambda=lr_lambda_warmup(warmup_steps, lr_lambda_constant(), optimizer),
                     last_epoch=int(global_step / gradient_accumulation_steps) - 1)
                 scheduler = SequentialLR(
                     optimizer,
@@ -1664,7 +1664,7 @@ def create_lr_scheduler(
             lr_lambda = lr_lambda_constant()
 
     if warmup_steps > 0 and not config.optimizer.optimizer.is_schedule_free:
-        lr_lambda = lr_lambda_warmup(warmup_steps, lr_lambda)
+        lr_lambda = lr_lambda_warmup(warmup_steps, lr_lambda, optimizer)
 
     return LambdaLR(
         optimizer=optimizer,

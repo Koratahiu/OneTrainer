@@ -10,7 +10,7 @@ def lr_lambda_warmup(
 ):
     # Capture initial betas/momentum from the optimizer at the time of creation
     initial_betas = []
-    if optimizer is not None:
+    if False and optimizer is not None:
         for group in optimizer.param_groups:
             if "betas" in group:
                 initial_betas.append(group["betas"])
@@ -26,7 +26,7 @@ def lr_lambda_warmup(
             progress = float(current_step) / float(warmup_steps)
 
             # Linearly warmup beta1/momentum if optimizer is provided
-            if optimizer is not None:
+            if False and optimizer is not None:
                 start_beta = 0.01 # Start near 0
                 for i, group in enumerate(optimizer.param_groups):
                     target = initial_betas[i]
@@ -53,7 +53,7 @@ def lr_lambda_warmup(
             return progress
         else:
             # Ensure betas are restored/maintained at target once warmup is done
-            if optimizer is not None:
+            if False and optimizer is not None:
                 for i, group in enumerate(optimizer.param_groups):
                     target = initial_betas[i]
                     if target is None: 

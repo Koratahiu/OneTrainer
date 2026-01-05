@@ -160,7 +160,7 @@ from modules.util.NamedParameterGroup import NamedParameterGroupCollection
 from modules.util.optimizer.adafactor_extensions import patch_adafactor
 from modules.util.optimizer.adam_extensions import patch_adam
 from modules.util.optimizer.adamw_extensions import patch_adamw
-from modules.util.optimizer.muon_util import split_parameters_for_muon
+from modules.util.optimizer.muon_util import split_parameters_for_muon, calculate_muon_n_layers
 from modules.util.TrainProgress import TrainProgress
 from modules.zluda import ZLUDA
 
@@ -522,6 +522,7 @@ def create_optimizer(
         state_dict: dict | None,
         config: TrainConfig,
         layer_key_fn: dict[int, str] | None = None,
+        model: BaseModel = None,
 ) -> torch.optim.Optimizer | None:
     optimizer = None
     optimizer_config = config.optimizer
@@ -1240,6 +1241,9 @@ def create_optimizer(
 
             params_for_optimizer, MuonWithAuxAdam = split_parameters_for_muon(parameters, layer_key_fn, config)
 
+            # Calculate n_layers for spectral normalization
+            n_layers = calculate_muon_n_layers(model)
+
             # Prepare Adam-specific keyword arguments from the config
             adam_kwargs = {}
             if MuonWithAuxAdam:
@@ -1279,6 +1283,7 @@ def create_optimizer(
                 orthogonal_gradient=optimizer_config.orthogonal_gradient if optimizer_config.orthogonal_gradient is not None else False,
                 approx_mars=optimizer_config.approx_mars if optimizer_config.approx_mars is not None else False,
                 compiled_optimizer=optimizer_config.compiled_optimizer if optimizer_config.compiled_optimizer is not None else False,
+                n_layers=n_layers,
                 **adam_kwargs
             )
 

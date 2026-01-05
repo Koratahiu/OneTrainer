@@ -65,7 +65,7 @@ def init_model_parameters(
         layer_key_fn = build_muon_adam_key_fn(model, model.train_config)
 
     model.optimizer = create.create_optimizer(
-        parameters, model.optimizer_state_dict, model.train_config, layer_key_fn
+        parameters, model.optimizer_state_dict, model.train_config, layer_key_fn, model=model
     )
 
     if model.optimizer is not None:

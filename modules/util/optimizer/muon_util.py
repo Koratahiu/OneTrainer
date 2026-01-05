@@ -6,6 +6,43 @@ from modules.util.enum.ModelType import ModelType
 from modules.util.ModuleFilter import ModuleFilter
 
 import torch
+import re
+
+def calculate_muon_n_layers(model: BaseModel) -> int:
+    """
+    Calculates the number of transformer_blocks and resnets in the model.
+    Used for Muon optimizer spectral normalization scaling.
+    """
+    # Pattern matches any module ending in .transformer_blocks.N or .resnets.N
+    # (or starting with them). strict matching to specific block names.
+    pattern = re.compile(r'(?:^|\.)(?:transformer_blocks|resnets)\.\d+$')
+
+    unique_modules = set()
+    total_blocks = 0
+
+    def scan_root(root: torch.nn.Module):
+        nonlocal total_blocks
+        if id(root) in unique_modules:
+            return
+        unique_modules.add(id(root))
+
+        for name, _ in root.named_modules():
+            if pattern.search(name):
+                total_blocks += 1
+
+    for attr_name, module in vars(model).items():
+        if isinstance(module, LoRAModuleWrapper):
+            # For LoRA, we scan the original module structure
+            scan_root(module.orig_module)
+        elif isinstance(module, torch.nn.Module):
+            scan_root(module)
+
+    if total_blocks == 0:
+        print("[MuonUtil] Warning: Could not detect any 'transformer_blocks' or 'resnets'. Defaulting n_layers to 1.")
+        return 1
+
+    print(f"[MuonUtil] Detected {total_blocks} layers (transformer_blocks + resnets) for Muon spectral scaling.")
+    return total_blocks
 
 
 def build_muon_adam_key_fn(

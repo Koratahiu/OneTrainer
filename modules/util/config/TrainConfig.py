@@ -143,6 +143,8 @@ class TrainOptimizerConfig(BaseConfig):
     kappa_p: float
     auto_kappa_p: False
     compile: False
+    sycnorm_lora: False
+    rescaled_lora_wd: False
 
     def __init__(self, data: list[(str, Any, type, bool)]):
         super().__init__(data)
@@ -261,6 +263,8 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("kappa_p", None, float, True))
         data.append(("auto_kappa_p", False, bool, False))
         data.append(("compile", False, bool, False))
+        data.append(("sycnorm_lora", True, bool, False))
+        data.append(("rescaled_lora_wd", True, bool, False))
 
         return TrainOptimizerConfig(data)
 

@@ -73,6 +73,9 @@ class Optimizer(Enum):
     MUON_ADV = 'MUON_ADV'
     ADAMUON_ADV = 'ADAMUON_ADV'
 
+    # MANO
+    MANO_ADV = 'MANO_ADV'
+
     #Pytorch Optimizers
     ADABELIEF = 'ADABELIEF'
     TIGER = 'TIGER'
@@ -118,6 +121,7 @@ class Optimizer(Enum):
             Optimizer.MUON_ADV,
             Optimizer.ADAMUON_ADV,
             Optimizer.SIGNSGD_ADV,
+            Optimizer.MANO_ADV,
         ]
 
     # Small helper for adjusting learning rates to adaptive optimizers.

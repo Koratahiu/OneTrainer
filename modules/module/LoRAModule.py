@@ -291,6 +291,7 @@ class LoRAModule(PeftBase):
     alpha: torch.Tensor
     dropout: Dropout
     use_stiefel: bool
+    use_stiefel: bool
 
     # Note there's a few times in this class where we assert the existence of
     # optional members. This is because these members might not exist at
@@ -603,8 +604,7 @@ class LoRAModuleWrapper:
         self.peft_type = config.peft_type
         self.rank = config.lora_rank
         self.alpha = config.lora_alpha
-        #use_stiefel = config.optimizer.lora_stiefel
-        use_stiefel = getattr(config, 'lora_stiefel', True)
+        use_stiefel = config.use_stiefel
 
         self.module_filters = [
             ModuleFilter(pattern, use_regex=config.layer_filter_regex)

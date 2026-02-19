@@ -836,6 +836,23 @@ def create_optimizer(
                 compiled_optimizer=optimizer_config.compile if optimizer_config.compile is not None else False,
             )
 
+        # MANO_ADV Optimizer
+        case Optimizer.MANO_ADV:
+            from adv_optm import Mano_adv
+            optimizer = Mano_adv(
+                params=parameters,
+                lr=config.learning_rate,
+                beta1=optimizer_config.beta1 if optimizer_config.beta1 is not None else 0.9,
+                weight_decay=optimizer_config.weight_decay if optimizer_config.weight_decay is not None else 0.0,
+                nnmf_factor=optimizer_config.nnmf_factor if optimizer_config.nnmf_factor is not None else False,
+                cautious_wd=optimizer_config.cautious_wd if optimizer_config.cautious_wd is not None else False,
+                stochastic_rounding=optimizer_config.stochastic_rounding,
+                nesterov=optimizer_config.nesterov if optimizer_config.nesterov is not None else True,
+                compiled_optimizer=optimizer_config.compile if optimizer_config.compile is not None else False,
+                sycnorm_lora=optimizer_config.sycnorm_lora if optimizer_config.sycnorm_lora is not None else False,
+                rescaled_lora_wd=optimizer_config.rescaled_lora_wd if optimizer_config.rescaled_lora_wd is not None else False,
+            )
+
         # MUON_ADV Optimizer
         case Optimizer.MUON_ADV:
             import inspect

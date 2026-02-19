@@ -199,6 +199,8 @@ class OptimizerParamsWindow(ctk.CTkToplevel):
             'kappa_p': {'title': 'Lion-K P-value', 'tooltip': 'Controls the Lp-norm geometry for the Lion update. 1.0 = Standard Lion (Sign update, coordinate-wise), best for Transformers. 2.0 = Spherical Lion (Normalized update, rotational invariant), best for Conv2d layers (in unet models). Values between 1.0 and 2.0 interpolate behavior between the two.', 'type': 'float'},
             'auto_kappa_p': {'title': 'Auto Lion-K', 'tooltip': 'Automatically determines the optimal P-value based on layer dimensions. Uses p=2.0 (Spherical) for 4D (Conv) tensors for stability and rotational invariance, and p=1.0 (Sign) for 2D (Linear) tensors for sparsity. Overrides the manual P-value. Recommend for unet models.', 'type': 'bool'},
             'compile': {'title': 'Compiled Optimizer', 'tooltip': 'Enables PyTorch compilation for the optimizer internal step logic. This is intended to improve performance by allowing PyTorch to fuse operations and optimize the computational graph.', 'type': 'bool'},
+            'sycnorm_lora': {'title': 'SyncNorm LoRA', 'tooltip': 'Synchronizes normalization for LoRA matrices (A vs B) to align feature learning. DISABLE this for full-finetuning.', 'type': 'bool'},
+            'rescaled_lora_wd': {'title': 'Rescaled LoRA WD', 'tooltip': 'Rescales weight decay by the theoretical squared Frobenius norm of LoRA factors, and decouples it from the LR for consistent WD effect across ranks and LoRA factors. DISABLE this for full-finetuning.', 'type': 'bool'},
         }
         # @formatter:on
 

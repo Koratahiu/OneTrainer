@@ -41,7 +41,7 @@ class BaseFluxSetup(
     LAYER_PRESETS = {
         "attn-mlp": ["attn", "ff.net"],
         "attn-only": ["attn"],
-        "blocks": ["transformer_block"],
+        "blocks": ["transformer_blocks"],
         "full": [],
     }
 
@@ -237,6 +237,14 @@ class BaseFluxSetup(
                 text_encoder_2_dropout_probability=config.text_encoder_2.dropout_probability,
                 apply_attention_mask=config.transformer.attention_mask,
             )
+
+            if config.cep_enabled:
+                text_encoder_output = self._apply_conditional_embedding_perturbation(
+                    text_encoder_output, config.cep_gamma, generator
+                )
+                pooled_text_encoder_output = self._apply_conditional_embedding_perturbation(
+                    pooled_text_encoder_output, config.cep_gamma, generator
+                )
 
             latent_image = batch['latent_image']
             scaled_latent_image = (latent_image - vae_shift_factor) * vae_scaling_factor

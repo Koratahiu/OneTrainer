@@ -41,7 +41,7 @@ class BaseChromaSetup(
     LAYER_PRESETS = {
         "attn-mlp": ["attn", "ff.net"],
         "attn-only": ["attn"],
-        "blocks": ["transformer_block"],
+        "blocks": ["transformer_blocks"],
         "full": [],
     }
 
@@ -191,6 +191,11 @@ class BaseChromaSetup(
                     if 'text_encoder_hidden_state' in batch and not config.train_text_encoder_or_embedding() else None,
                 text_encoder_dropout_probability=config.text_encoder.dropout_probability,
             )
+
+            if config.cep_enabled:
+                text_encoder_output = self._apply_conditional_embedding_perturbation(
+                    text_encoder_output, config.cep_gamma, generator
+                )
 
             latent_image = batch['latent_image']
             scaled_latent_image = (latent_image - vae_shift_factor) * vae_scaling_factor

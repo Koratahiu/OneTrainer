@@ -523,6 +523,7 @@ class DoRAOFTModule(OFTModule):
 
         # Initialize learnable magnitude vector to the initial norm
         self.dora_scale = nn.Parameter(self.initial_norm.clone())
+        self.dora_scale._is_dora_scale = True
 
     def check_initialized(self):
         super().check_initialized()

@@ -68,6 +68,7 @@ class OFTRotationModule(nn.Module):
         self.register_buffer("rows", rows, persistent=False)
         self.register_buffer("cols", cols, persistent=False)
         self.dropout = MultiplicativeDropoutLayer(p=dropout_probability)
+        self._cayley_batch = torch.compile(self._cayley_batch, fullgraph=True)
 
 
     def _pytorch_skew_symmetric(self, vec, block_size):

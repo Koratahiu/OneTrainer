@@ -32,11 +32,11 @@ class InternalModelLoaderMixin(metaclass=ABCMeta):
             # optimizer
             with contextlib.suppress(FileNotFoundError):
                 model.optimizer_state_dict = torch.load(os.path.join(model_name, "optimizer", "optimizer.pt"),
-                                                        weights_only=True)
+                                                        weights_only=False)
 
             # ema
             with contextlib.suppress(FileNotFoundError):
-                model.ema_state_dict = torch.load(os.path.join(model_name, "ema", "ema.pt"), weights_only=True)
+                model.ema_state_dict = torch.load(os.path.join(model_name, "ema", "ema.pt"), weights_only=False)
 
             # meta
             model.train_progress = train_progress

@@ -9,6 +9,7 @@ from modules.util.ModuleFilter import ModuleFilter
 from modules.util.NamedParameterGroup import NamedParameterGroup, NamedParameterGroupCollection
 from modules.util.TimedActionMixin import TimedActionMixin
 from modules.util.TrainProgress import TrainProgress
+from modules.util.enum.Optimizer import Optimizer
 
 import torch
 from torch import Tensor
@@ -134,6 +135,22 @@ class BaseModelSetup(
             tensorboard.add_scalar(
                 f"lr/{name}", lr, model.train_progress.global_step
             )
+
+            # ALIAS Min/Max reporting
+            if config.optimizer.optimizer == Optimizer.ALIAS_ADV:
+                for group in model.optimizer.param_groups:
+                    # Match the group by name if multiple groups exist
+                    if group.get('name') == name or name.startswith(group.get('name', '')):
+                        alias_lrs = []
+                        for p in group['params']:
+                            state = model.optimizer.state.get(p)
+                            if state and 'alias_prev_lr' in state:
+                                val = state['alias_prev_lr']
+                                alias_lrs.append(val.item() if isinstance(val, torch.Tensor) else val)
+
+                        if alias_lrs:
+                            tensorboard.add_scalar(f"ALIAS/lr_min/{name}", min(alias_lrs), model.train_progress.global_step)
+                            tensorboard.add_scalar(f"ALIAS/lr_max/{name}", max(alias_lrs), model.train_progress.global_step)
 
         if hasattr(model.optimizer, 'kourkoutas_helper') and model.optimizer.kourkoutas_helper is not None:
             stats = model.optimizer.kourkoutas_helper.last_beta2_stats

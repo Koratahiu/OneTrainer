@@ -61,6 +61,9 @@ class Optimizer(Enum):
     PRODIGY_ADV = 'PRODIGY_ADV'
     LION_PRODIGY_ADV = 'LION_PRODIGY_ADV'
 
+    # ALIAS
+    ALIAS_ADV = 'ALIAS_ADV'
+
     # ADAFACTOR
     ADAFACTOR = 'ADAFACTOR'
 
@@ -91,6 +94,7 @@ class Optimizer(Enum):
             self.PRODIGY_PLUS_SCHEDULE_FREE,
             self.PRODIGY_ADV,
             self.LION_PRODIGY_ADV,
+            self.ALIAS_ADV,
         ]
 
     @property
@@ -118,17 +122,34 @@ class Optimizer(Enum):
             Optimizer.MUON_ADV,
             Optimizer.ADAMUON_ADV,
             Optimizer.SIGNSGD_ADV,
+            Optimizer.ALIAS_ADV,
         ]
 
     # Small helper for adjusting learning rates to adaptive optimizers.
     def maybe_adjust_lrs(self, lrs: dict[str, float], optimizer: torch.optim.Optimizer):
         if self.is_adaptive:
-            return {
-                # Return `effective_lr * d` if "effective_lr" key present, otherwise return `lr * d`
-                key: (optimizer.param_groups[i].get("effective_lr", lr) * optimizer.param_groups[i].get("d", 1.0)
-                      if lr is not None else None)
-                for i, (key, lr) in enumerate(lrs.items())
-            }
+            new_lrs = {}
+            for i, (key, lr) in enumerate(lrs.items()):
+                group = optimizer.param_groups[i]
+                if self == Optimizer.ALIAS_ADV:
+                    # For ALIAS, we calculate the mean LR across all parameters in the group
+                    alias_lrs = []
+                    for p in group['params']:
+                        state = optimizer.state.get(p)
+                        if state and 'alias_prev_lr' in state:
+                            val = state['alias_prev_lr']
+                            alias_lrs.append(val.item() if isinstance(val, torch.Tensor) else val)
+
+                    if alias_lrs:
+                        new_lrs[key] = sum(alias_lrs) / len(alias_lrs)
+                    else:
+                        new_lrs[key] = group['lr']
+                else:
+                    # Default logic for Prodigy/D-Adaptation
+                    effective_lr = group.get("effective_lr", lr)
+                    d = group.get("d", 1.0)
+                    new_lrs[key] = effective_lr * d if effective_lr is not None else None
+            return new_lrs
         return lrs
 
     def __str__(self):

@@ -206,6 +206,8 @@ class OptimizerParamsWindow(ctk.CTkToplevel):
             'centered_wd': {'title': 'Centered Weight Decay', 'tooltip': 'Centered Weight Decay coefficient. Instead of decaying weights toward zero, they are decayed toward their initial values (anchors). This can be used together with standard weight decay.', 'type': 'float'},
             'centered_wd_mode': {'title': 'Centered WD Mode', 'tooltip': """The quantization format used to store the anchor weights to save VRAM. Options include: 'full': Stores anchors in the original parameter's precision. 'float8': Uses torch.float8_e4m3fn for a balance of precision and memory. 'int8': Uses 8-bit block-wise quantization. 'int4': Uses 4-bit block-wise quantization.""", 'type': 'CenteredWDMode'},
             'factored_2nd': {'title': 'Factored 2nd', 'tooltip': 'Whether to keep the first moment uncompressed (dense), while only factorizing the second moment. This makes the optimizer highly robust to a wide range of LRs, mimicking high-order optimization.', 'type': 'bool'},
+            'approx_alias': {'title': 'Approx variant', 'tooltip': 'Whenever to use memory-efficient scalar tracking to approximate the LR calculations. If False: Stores the full previous gradient to calculate exact LR. If True: Store instead two small scalars, but may degrade the performance.', 'type': 'bool'},
+            'packed_sign': {'title': 'Packed Sign', 'tooltip': 'Use 1-bit lossless compress for uint8 sign to save memory. Disable this for faster calculations.', 'type': 'bool'},
         }
         # @formatter:on
 

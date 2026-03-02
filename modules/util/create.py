@@ -807,6 +807,30 @@ def create_optimizer(
                 centered_wd_mode=optimizer_config.centered_wd_mode if optimizer_config.centered_wd_mode is not None else "full",
             )
 
+        # ALIAS_ADV Optimizer
+        case Optimizer.ALIAS_ADV:
+            from adv_optm import ALIAS_adv
+            optimizer = ALIAS_adv(
+                params=parameters,
+                lr=config.learning_rate,
+                momentum=optimizer_config.momentum if optimizer_config.momentum is not None else 0,
+                weight_decay=optimizer_config.weight_decay if optimizer_config.weight_decay is not None else 0.0,
+                approx_alias=optimizer_config.approx_alias if optimizer_config.approx_alias is not None else False,
+                packed_sign=optimizer_config.packed_sign if optimizer_config.packed_sign is not None else False,
+                nnmf_factor=optimizer_config.nnmf_factor if optimizer_config.nnmf_factor is not None else False,
+                cautious_wd=optimizer_config.cautious_wd if optimizer_config.cautious_wd is not None else False,
+                stochastic_rounding=optimizer_config.stochastic_rounding,
+                orthogonal_gradient=optimizer_config.orthogonal_gradient if optimizer_config.orthogonal_gradient is not None else False,
+                compiled_optimizer=optimizer_config.compile if optimizer_config.compile is not None else False,
+                Simplified_AdEMAMix=optimizer_config.Simplified_AdEMAMix if optimizer_config.Simplified_AdEMAMix is not None else False,
+                alpha_grad=optimizer_config.alpha_grad if optimizer_config.alpha_grad is not None else 100,
+                scaled_optm=optimizer_config.scaled_optm if optimizer_config.scaled_optm is not None else False,
+                freeze_on_flip=optimizer_config.freeze_on_flip if optimizer_config.freeze_on_flip is not None else False,
+                l1_adaptive=optimizer_config.l1_adaptive if optimizer_config.l1_adaptive is not None else False,
+                centered_wd=optimizer_config.centered_wd if optimizer_config.centered_wd is not None else 0.0,
+                centered_wd_mode=optimizer_config.centered_wd_mode if optimizer_config.centered_wd_mode is not None else "full",
+            )
+
         # LION_ADV Optimizer
         case Optimizer.LION_ADV:
             from adv_optm import Lion_adv

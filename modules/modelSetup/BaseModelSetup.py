@@ -149,8 +149,8 @@ class BaseModelSetup(
                                 alias_lrs.append(val.item() if isinstance(val, torch.Tensor) else val)
 
                         if alias_lrs:
-                            tensorboard.add_scalar(f"ALIAS/lr_min/{name}", min(alias_lrs), model.train_progress.global_step)
-                            tensorboard.add_scalar(f"ALIAS/lr_max/{name}", max(alias_lrs), model.train_progress.global_step)
+                            tensorboard.add_scalar(f"ALIAS/lr_min_{name}", min(alias_lrs), model.train_progress.global_step)
+                            tensorboard.add_scalar(f"ALIAS/lr_max_{name}", max(alias_lrs), model.train_progress.global_step)
 
         if hasattr(model.optimizer, 'kourkoutas_helper') and model.optimizer.kourkoutas_helper is not None:
             stats = model.optimizer.kourkoutas_helper.last_beta2_stats

@@ -152,6 +152,29 @@ class BaseModelSetup(
                             tensorboard.add_scalar(f"ALIAS/lr_min_{name}", min(alias_lrs), model.train_progress.global_step)
                             tensorboard.add_scalar(f"ALIAS/lr_max_{name}", max(alias_lrs), model.train_progress.global_step)
 
+            target_groups = [g for g in model.optimizer.param_groups if g.get('name') == name or name.startswith(g.get('name', ''))]
+            
+            l1_scalers = []
+            
+            for group in target_groups:
+                for p in group['params']:
+                    state = model.optimizer.state.get(p)
+                    # Check if our recorder exists in the state
+                    if state and 'l1_adaptive_recorder' in state:
+                        val = state['l1_adaptive_recorder']
+                        l1_scalers.append(val.item())
+
+            if l1_scalers:
+                step = model.train_progress.global_step
+                # Calculate stats
+                min_v = min(l1_scalers)
+                max_v = max(l1_scalers)
+                mean_v = sum(l1_scalers) / len(l1_scalers)
+
+                tensorboard.add_scalar(f"SignSGD/l1_mean_min_{name}", min_v, step)
+                tensorboard.add_scalar(f"SignSGD/l1_mean_max_{name}", max_v, step)
+                tensorboard.add_scalar(f"SignSGD/l1_mean_avg_{name}", mean_v, step)
+
         if hasattr(model.optimizer, 'kourkoutas_helper') and model.optimizer.kourkoutas_helper is not None:
             stats = model.optimizer.kourkoutas_helper.last_beta2_stats
             if stats:

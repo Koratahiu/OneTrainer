@@ -625,6 +625,18 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "kappa_p": 1.0,
         "auto_kappa_p": True,
     },
+    Optimizer.MANO_ADV: {
+        "beta1": 0.95,
+        "cautious_wd": False,
+        "weight_decay": 0.0,
+        "nnmf_factor": False,
+        "stochastic_rounding": True,
+        "compile": False,
+        "fused_back_pass": False,
+        "nesterov": True,
+        "Simplified_AdEMAMix": False,
+        "alpha_grad": 100.0,
+    },
     Optimizer.MUON_ADV: {
         "beta1": 0.9,
         "cautious_wd": False,

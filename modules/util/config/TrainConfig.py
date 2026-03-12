@@ -561,6 +561,16 @@ class TrainConfig(BaseConfig):
     dora_oft: bool
     scaled_oft: bool
 
+    # lokr
+    lokr_dim: int
+    lokr_decompose_both: bool
+    lokr_decompose_factor: int
+    lokr_use_tucker: bool
+    lokr_weight_decompose: bool
+    lokr_dora_on_output: bool
+    lokr_rs_lora: bool
+    lokr_full_matrix: bool
+
     # optimizer
     optimizer: TrainOptimizerConfig
     optimizer_defaults: dict[str, TrainOptimizerConfig]
@@ -1196,6 +1206,16 @@ class TrainConfig(BaseConfig):
         data.append(("oft_block_share", False, bool, False))
         data.append(("dora_oft", False, bool, False))
         data.append(("scaled_oft", False, bool, False))
+
+        # lokr
+        data.append(("lokr_dim", 16, int, False))
+        data.append(("lokr_decompose_both", False, bool, False))
+        data.append(("lokr_decompose_factor", -1, int, False))
+        data.append(("lokr_use_tucker", False, bool, False))
+        data.append(("lokr_weight_decompose", False, bool, False))
+        data.append(("lokr_dora_on_output", True, bool, False))
+        data.append(("lokr_rs_lora", False, bool, False))
+        data.append(("lokr_full_matrix", False, bool, False))
 
         # optimizer
         data.append(("optimizer", TrainOptimizerConfig.default_values(), TrainOptimizerConfig, False))

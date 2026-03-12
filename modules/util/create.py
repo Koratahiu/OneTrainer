@@ -886,6 +886,15 @@ def create_optimizer(
         # MANO_ADV Optimizer
         case Optimizer.MANO_ADV:
             from adv_optm import Mano_adv
+            n_layers_map = calculate_muon_n_layers(model)
+
+            for group in parameters:
+                group_name = group.get('name')
+                if group_name in n_layers_map:
+                    group['n_layers'] = n_layers_map[group_name]
+                else:
+                    group['n_layers'] = n_layers_map.get('default', 1)
+
             optimizer = Mano_adv(
                 params=parameters,
                 lr=config.learning_rate,

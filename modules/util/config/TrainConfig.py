@@ -153,6 +153,7 @@ class TrainOptimizerConfig(BaseConfig):
     factored_2nd: False
     approx_alias: False
     packed_sign: True
+    rotate_method: str
 
     def __init__(self, data: list[(str, Any, type, bool)]):
         super().__init__(data)
@@ -280,6 +281,7 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("factored_2nd", False, bool, False))
         data.append(("approx_alias", False, bool, False))
         data.append(("packed_sign", True, bool, False))
+        data.append(("rotate_method", "fixed", str, False))
 
         return TrainOptimizerConfig(data)
 

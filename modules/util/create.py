@@ -891,11 +891,15 @@ def create_optimizer(
                 lr=config.learning_rate,
                 beta1=optimizer_config.beta1 if optimizer_config.beta1 is not None else 0.9,
                 weight_decay=optimizer_config.weight_decay if optimizer_config.weight_decay is not None else 0.0,
+                rotate_method=optimizer_config.rotate_method if optimizer_config.rotate_method is not None else "auto_ft",
                 nnmf_factor=optimizer_config.nnmf_factor if optimizer_config.nnmf_factor is not None else False,
                 cautious_wd=optimizer_config.cautious_wd if optimizer_config.cautious_wd is not None else False,
                 stochastic_rounding=optimizer_config.stochastic_rounding,
                 nesterov=optimizer_config.nesterov if optimizer_config.nesterov is not None else True,
                 compiled_optimizer=optimizer_config.compile if optimizer_config.compile is not None else False,
+                scaled_optm=optimizer_config.scaled_optm if optimizer_config.scaled_optm is not None else False,
+                centered_wd=optimizer_config.centered_wd if optimizer_config.centered_wd is not None else 0.0,
+                centered_wd_mode=optimizer_config.centered_wd_mode if optimizer_config.centered_wd_mode is not None else "full",
             )
 
         # MUON_ADV Optimizer

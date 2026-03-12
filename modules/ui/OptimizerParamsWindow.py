@@ -208,6 +208,7 @@ class OptimizerParamsWindow(ctk.CTkToplevel):
             'factored_2nd': {'title': 'Factored 2nd', 'tooltip': 'Whether to keep the first moment uncompressed (dense), while only factorizing the second moment. This makes the optimizer highly robust to a wide range of LRs, mimicking high-order optimization.', 'type': 'bool'},
             'approx_alias': {'title': 'Approx ALIAS', 'tooltip': 'When to use memory-efficient scalar tracking to approximate the LR calculations. If False: stores the full previous gradient to calculate the exact LR. If True: stores two small scalars instead, but may degrade performance.', 'type': 'bool'},
             'packed_sign': {'title': 'Packed Sign', 'tooltip': 'Use 1-bit lossless compression for uint8 sign to save memory. Disable this for faster calculations at the cost of increased VRAM usage.', 'type': 'bool'},
+            'rotate_method': {'title': 'Rotation Mode', 'tooltip': "The manifold rotation dimension can be selected using three distinct methods: 'fixed', which always rotates along the largest dimension, optimal for LoRA/OFT/Embeddings; 'auto_ft', which applies the original Mano rotation across an arbitrary dimension, original Mano for full-finetuning; or 'auto_adjusted_ft', which dynamically weights the selection frequency based on axis size. In the latter case, if one axis is X times larger than others, the algorithm is designed to choose that specific axis X times more frequently, ensuring the rotation frequency is proportional to the manifold's scale, improved Mano for full-finetuning.", 'type': 'ManoMode'},
         }
         # @formatter:on
 
@@ -246,6 +247,9 @@ class OptimizerParamsWindow(ctk.CTkToplevel):
                 self.toggle_muon_adam_button()
             elif type == 'CenteredWDMode':
                 components.options(master, row, col + 1, ["full", "float8", "int8", "int4"], self.optimizer_ui_state, key,
+                                   command=self.update_user_pref)
+            elif type == 'ManoMode':
+                components.options(master, row, col + 1, ["fixed", "auto_ft", "auto_adjusted_ft"], self.optimizer_ui_state, key,
                                    command=self.update_user_pref)
             elif type != 'bool':
                 components.entry(master, row, col + 1, self.optimizer_ui_state, key,

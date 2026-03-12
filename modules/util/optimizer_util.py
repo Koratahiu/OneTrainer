@@ -629,6 +629,7 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "beta1": 0.95,
         "cautious_wd": False,
         "weight_decay": 0.0,
+        "rotate_method": "fixed",
         "nnmf_factor": False,
         "stochastic_rounding": True,
         "compile": False,
@@ -636,6 +637,9 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "nesterov": True,
         "Simplified_AdEMAMix": False,
         "alpha_grad": 100.0,
+        "scaled_optm": False,
+        "centered_wd": 0.0,
+        "centered_wd_mode": "float8",
     },
     Optimizer.MUON_ADV: {
         "beta1": 0.9,

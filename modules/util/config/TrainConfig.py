@@ -570,6 +570,7 @@ class TrainConfig(BaseConfig):
     lokr_dora_on_output: bool
     lokr_rs_lora: bool
     lokr_full_matrix: bool
+    lokr_vec_trick: bool
 
     # optimizer
     optimizer: TrainOptimizerConfig
@@ -1216,6 +1217,7 @@ class TrainConfig(BaseConfig):
         data.append(("lokr_dora_on_output", True, bool, False))
         data.append(("lokr_rs_lora", False, bool, False))
         data.append(("lokr_full_matrix", False, bool, False))
+        data.append(("lokr_vec_trick", True, bool, False))
 
         # optimizer
         data.append(("optimizer", TrainOptimizerConfig.default_values(), TrainOptimizerConfig, False))

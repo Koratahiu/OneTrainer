@@ -40,6 +40,10 @@ if not defined HF_HUB_DISABLE_XET (
     set "HF_HUB_DISABLE_XET=1"
 )
 echo HF_HUB_DISABLE_XET=%HF_HUB_DISABLE_XET%
+
+REM Enable Torch logging for recompiles
+set TORCH_LOGS="recompiles"
+echo TORCH_LOGS=%TORCH_LOGS%
 echo.
 echo NOTE: Xet disabled, to enable it set as 0 before launch
 

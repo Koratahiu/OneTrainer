@@ -72,7 +72,6 @@ class OFTRotationModule(nn.Module):
         self.register_buffer("cols", cols, persistent=False)
         self.dropout = MultiplicativeDropoutLayer(p=dropout_probability)
         self.gamma = gamma if gamma is not None else 0.0
-        self.cap_max_norm = cap_max_norm
         self.oft_clipped_norm = oft_clipped_norm
         if oft_clipped_norm:
             self.register_buffer("clipped_oft", torch.tensor(True))

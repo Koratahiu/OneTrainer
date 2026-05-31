@@ -525,16 +525,20 @@ class LoRAModule(PeftBase):
     rank: int
     alpha: torch.Tensor
     dropout: Dropout
+    gamma: float
 
     # Note there's a few times in this class where we assert the existence of
     # optional members. This is because these members might not exist at
     # construction, but definitely exist by the time those methods are called.
 
-    def __init__(self, prefix: str, orig_module: nn.Module | None, rank: int, alpha: float):
+    def __init__(self, prefix: str, orig_module: nn.Module | None, rank: int, alpha: float, **kwargs):
         super().__init__(prefix, orig_module)
 
         self.rank = rank
         self.dropout = Dropout(0)
+        self.gamma = kwargs.pop("gamma", 0.0)
+        if self.gamma is None:
+            self.gamma = 0.0
         self.register_buffer("alpha", torch.tensor(alpha))
         self.lora_down = None
         self.lora_up = None
@@ -560,7 +564,19 @@ class LoRAModule(PeftBase):
         if isinstance(self.orig_module, BaseLinearSVD):
             return self.orig_module.forward_with_lora(x, self.lora_down, self.lora_up, self.dropout, self.alpha)
 
-        ld = self.lora_up(self.dropout(self.lora_down(x)))
+        if self.training and self.gamma > 0.0:
+            down_weight = self.lora_down.weight + torch.randn_like(self.lora_down.weight) * self.gamma
+            up_weight = self.lora_up.weight + torch.randn_like(self.lora_up.weight) * self.gamma
+
+            if isinstance(self.orig_module, nn.Conv2d):
+                down_out = F.conv2d(x, down_weight, stride=self.lora_down.stride, padding=self.lora_down.padding, dilation=self.lora_down.dilation, groups=self.lora_down.groups)
+                ld = F.conv2d(self.dropout(down_out), up_weight, stride=self.lora_up.stride, padding=self.lora_up.padding, dilation=self.lora_up.dilation, groups=self.lora_up.groups)
+            else:
+                down_out = F.linear(x, down_weight)
+                ld = F.linear(self.dropout(down_out), up_weight)
+        else:
+            ld = self.lora_up(self.dropout(self.lora_down(x)))
+
         return self.orig_forward(x) + ld * (self.alpha / self.rank)
 
     def apply_to_module(self):
@@ -579,6 +595,7 @@ class OFTModule(PeftBase):
     block_share: bool
     oft_scaled: bool
     dropout_probability: float
+    gamma: float
     adjustment_info: tuple[int, int] | None # for reporting
 
     def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, block_share: bool, oft_scaled: bool, **kwargs):
@@ -588,6 +605,9 @@ class OFTModule(PeftBase):
         self.block_share = block_share
         self.oft_scaled = oft_scaled
         self.dropout_probability = kwargs.pop('dropout_probability', 0.0)
+        self.gamma = kwargs.pop("gamma", 0.0)
+        if self.gamma is None:
+            self.gamma = 0.0
         self.oft_R = None
         self.adjustment_info = None
 
@@ -656,6 +676,7 @@ class OFTModule(PeftBase):
             use_cayley_neumann=True,
             num_cayley_neumann_terms=5,
             dropout_probability=self.dropout_probability,
+            gamma=self.gamma,
         )
 
         nn.init.zeros_(self.oft_R.weight)
@@ -670,6 +691,9 @@ class OFTModule(PeftBase):
 
         scaling_factor = 2 * math.sqrt(self.oft_R.block_size - 1) if self.oft_scaled else 1
         effective_weight = self.oft_R.weight / scaling_factor
+
+        if self.training and self.gamma > 0.0:
+            effective_weight = effective_weight + torch.randn_like(effective_weight) * self.gamma
 
         # For Conv2d, we must rotate the weights, not the input, to preserve spatial information.
         orth_rotate = self.oft_R._cayley_batch(
@@ -843,6 +867,10 @@ class DoRAModule(LoRAModule):
         A = self.lora_down.weight
         B = self.lora_up.weight
 
+        if self.training and getattr(self, "gamma", 0.0) > 0.0:
+            A = A + torch.randn_like(A) * self.gamma
+            B = B + torch.randn_like(B) * self.gamma
+
         if isinstance(self.orig_module, nn.Linear):
             orig_weight = get_unquantized_weight(self.orig_module, torch.float, self.train_device)
         else:
@@ -926,12 +954,15 @@ class LoRAModuleWrapper:
                     'norm_epsilon': config.lora_decompose_norm_epsilon,
                     'decompose_output_axis': config.lora_decompose_output_axis,
                     'train_device': torch.device(config.train_device),
+                    'gamma': 0.00125,
                 }
             else:
                 self.klass = LoRAModule
                 self.dummy_klass = DummyLoRAModule
                 self.additional_args = [self.rank, self.alpha]
-                self.additional_kwargs = {}
+                self.additional_kwargs = {
+                    'gamma': 0.00125,
+                }
         elif self.peft_type == PeftType.LOHA:
             self.klass = LoHaModule
             self.dummy_klass = DummyLoHaModule
@@ -952,6 +983,7 @@ class LoRAModuleWrapper:
             ]
             self.additional_kwargs = {
                 'dropout_probability': config.dropout_probability,
+                'gamma': 0.00125,
             }
         elif self.peft_type == PeftType.LOKR:
             self.klass = LoKrModule

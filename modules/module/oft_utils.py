@@ -48,6 +48,7 @@ class OFTRotationModule(nn.Module):
         use_cayley_neumann=True,
         num_cayley_neumann_terms=5,
         dropout_probability=0.0,
+        gamma=0.0,
     ):
         super().__init__()
         self.r = r
@@ -69,6 +70,7 @@ class OFTRotationModule(nn.Module):
         self.register_buffer("rows", rows, persistent=False)
         self.register_buffer("cols", cols, persistent=False)
         self.dropout = MultiplicativeDropoutLayer(p=dropout_probability)
+        self.gamma = gamma if gamma is not None else 0.0
 
 
     def _pytorch_skew_symmetric(self, vec, block_size):
@@ -132,6 +134,9 @@ class OFTRotationModule(nn.Module):
 
         scaling_factor = 2 * math.sqrt(self.block_size - 1) if self.oft_scaled else 1
         effective_weight = self.weight / scaling_factor
+
+        if self.training and self.gamma > 0.0:
+            effective_weight = effective_weight + torch.randn_like(effective_weight) * self.gamma
 
         orth_rotate = self._cayley_batch(
             effective_weight, self.block_size, self.use_cayley_neumann, self.num_cayley_neumann_terms

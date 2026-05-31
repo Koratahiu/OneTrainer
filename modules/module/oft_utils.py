@@ -107,10 +107,12 @@ class OFTRotationModule(nn.Module):
         Q_skew = self._pytorch_skew_symmetric(Q, block_size)
 
         if use_cayley_neumann and self.oft_clipped_norm:
-            # The Neumann series only converges if the matrix norm Q < 1.
-            # Cap the Frobenius norm at sqrt(2), which strictly bounds the Spectral norm at < 1.0
-            norms = torch.linalg.vector_norm(Q_skew, ord=2, dim=(-2, -1), keepdim=True)
-            max_norm = math.sqrt(2) * 0.999
+            # The Neumann series only converges if the spectral norm ||Q||_2 < 1.
+            # For a skew-symmetric matrix, ||Q||_2 <= ||Q||_inf (the maximum absolute row sum).
+            # This provides a tighter, stricter upper bound to the spectral norm,
+            # while being vastly more forgiving than the Frobenius norm for matrices 
+            norms = torch.linalg.matrix_norm(Q_skew, ord=float('inf'), dim=(-2, -1), keepdim=True)
+            max_norm = 0.999
             Q_skew = Q_skew * (max_norm / torch.clamp(norms, min=max_norm))
 
         if use_cayley_neumann:

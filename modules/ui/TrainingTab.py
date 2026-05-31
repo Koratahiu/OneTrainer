@@ -709,6 +709,11 @@ class TrainingTab:
         components.label(frame, row, 0, "CEP Gamma",
                          tooltip="Conditional Embedding Perturbation. Inject a slight noise into the TEs outputs to enhance the quality, diversity, and fidelity of the generated images. Gamma controls perturbation noise magnitude, paper's default is 1.")
         components.entry(frame, row, 1, self.ui_state, "cep_gamma", required=True)
+
+        # Immiscible Diffusion
+        components.label(frame, row, 0, "Noise Oversampling",
+                         tooltip="Implements Immiscible Diffusion. Generates 'k' noise candidates for each image and selects the one mathematically closest to the original. This 'straightens' the diffusion path, leading to faster convergence and cleaner images. Recommended: 64 (higher is better but slower). Set to 1 to disable.")
+        components.entry(frame, row, 1, self.ui_state, "k_noise_sampling")
         row += 1
 
 

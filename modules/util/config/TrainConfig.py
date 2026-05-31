@@ -458,6 +458,7 @@ class TrainConfig(BaseConfig):
     min_noising_strength: float
     max_noising_strength: float
     cep_gamma: float
+    k_noise_sampling: int
 
     noising_weight: float
     noising_bias: float
@@ -1052,6 +1053,7 @@ class TrainConfig(BaseConfig):
         data.append(("timestep_shift", 1.0, float, False))
         data.append(("dynamic_timestep_shifting", False, bool, False))
         data.append(("cep_gamma", 0.0, float, False))
+        data.append(("k_noise_sampling", 1, int, False))
 
 
         # unet

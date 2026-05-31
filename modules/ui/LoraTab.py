@@ -139,10 +139,10 @@ class LoraTab:
                              tooltip="Combines Weight-Decomposed Low-Rank Adaptation (DoRA) with OFT. By decoupling the weight into magnitude and direction components, it achieves the superior training dynamics of DoRA but with the stability and performance of OFT. Because OFT is norm-preserving, it avoids the heavy re-calculations typically found in standard DoRA, resulting in faster training (same speed as standard OFT) and better convergence.")
             components.switch(master, 3, 4, self.ui_state, "dora_oft")
 
-            # Cap OFT max norm
-            components.label(master, 5, 0, "Cap OFT Max Norm",
-                             tooltip="Strictly caps the Frobenius norm of the OFT matrix at 1. This guarantees the convergence of the Cayley parametrization, which mathematically requires a matrix norm of <= 1.")
-            components.switch(master, 5, 1, self.ui_state, "oft_cap_max_norm")
+            # Clip OFT max norm
+            components.label(master, 5, 0, "Clip OFT Norm",
+                             tooltip="Strictly clips the max Frobenius norm of the OFT matrix at 1. This guarantees the convergence of the Cayley parametrization, which mathematically requires a matrix norm of <= 1.")
+            components.switch(master, 5, 1, self.ui_state, "oft_clipped_norm")
 
             # Dropout Percentage
             components.label(master, 2, 0, "Dropout Probability",

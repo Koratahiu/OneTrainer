@@ -594,18 +594,18 @@ class OFTModule(PeftBase):
     oft_block_size: int
     block_share: bool
     oft_scaled: bool
-    oft_cap_max_norm: bool
+    oft_clipped_norm: bool
     dropout_probability: float
     gamma: float
     adjustment_info: tuple[int, int] | None # for reporting
 
-    def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, block_share: bool, oft_scaled: bool, oft_cap_max_norm: bool, **kwargs):
+    def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, block_share: bool, oft_scaled: bool, oft_clipped_norm: bool, **kwargs):
         super().__init__(prefix, orig_module)
         self.oft_block_size = oft_block_size
         self.rank = 0
         self.block_share = block_share
         self.oft_scaled = oft_scaled
-        self.oft_cap_max_norm = oft_cap_max_norm
+        self.oft_clipped_norm = oft_clipped_norm
         self.dropout_probability = kwargs.pop('dropout_probability', 0.0)
         self.gamma = kwargs.pop("gamma", 0.0)
         if self.gamma is None:
@@ -679,7 +679,7 @@ class OFTModule(PeftBase):
             num_cayley_neumann_terms=5,
             dropout_probability=self.dropout_probability,
             gamma=self.gamma,
-            cap_max_norm=self.oft_cap_max_norm,
+            oft_clipped_norm=self.oft_clipped_norm,
         )
 
         nn.init.zeros_(self.oft_R.weight)
@@ -984,7 +984,7 @@ class LoRAModuleWrapper:
                 config.oft_block_size,
                 config.oft_block_share,
                 config.oft_scaled,
-                config.oft_cap_max_norm,
+                config.oft_clipped_norm,
             ]
             self.additional_kwargs = {
                 'dropout_probability': config.dropout_probability,

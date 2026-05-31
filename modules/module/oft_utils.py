@@ -49,7 +49,7 @@ class OFTRotationModule(nn.Module):
         num_cayley_neumann_terms=5,
         dropout_probability=0.0,
         gamma=0.0,
-        cap_max_norm=False,
+        oft_clipped_norm=False,
     ):
         super().__init__()
         self.r = r
@@ -73,8 +73,9 @@ class OFTRotationModule(nn.Module):
         self.dropout = MultiplicativeDropoutLayer(p=dropout_probability)
         self.gamma = gamma if gamma is not None else 0.0
         self.cap_max_norm = cap_max_norm
-        if cap_max_norm:
-            self.register_buffer("capped_oft", torch.tensor(True))
+        self.oft_clipped_norm = oft_clipped_norm
+        if oft_clipped_norm:
+            self.register_buffer("clipped_oft", torch.tensor(True))
 
 
     def _pytorch_skew_symmetric(self, vec, block_size):
@@ -105,7 +106,7 @@ class OFTRotationModule(nn.Module):
 
         Q_skew = self._pytorch_skew_symmetric(Q, block_size)
 
-        if use_cayley_neumann and self.cap_max_norm:
+        if use_cayley_neumann and self.oft_clipped_norm:
             # The Neumann series only converges if the matrix norm Q < 1.
             # Cap the Frobenius norm at sqrt(2), which strictly bounds the Spectral norm at < 1.0
             norms = torch.linalg.vector_norm(Q_skew, ord=2, dim=(-2, -1), keepdim=True)

@@ -720,8 +720,6 @@ class TrainingTab:
         components.entry(frame, row, 1, self.ui_state, "timestep_shift", required=True)
         row += 1
 
-        row = 9
-
         if supports_dynamic_timestep_shifting:
             # dynamic timestep shifting
             components.label(frame, row, 0, "Dynamic Timestep Shifting",

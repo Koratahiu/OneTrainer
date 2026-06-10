@@ -123,7 +123,6 @@ class ModelSetupNoiseMixin(metaclass=ABCMeta):
 
         return noise
 
-<<<<<<< HEAD
     @staticmethod
     def _apply_conditional_embedding_perturbation(
             embedding: Tensor | list,

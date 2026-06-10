@@ -15,7 +15,7 @@ from transformers import (
     LlamaModel,
     T5EncoderModel,
 )
-from transformers.tokenization_utils import PreTrainedTokenizer, Trie
+from transformers.tokenization_python import PreTrainedTokenizer, Trie
 
 
 class ModelSetupEmbeddingMixin(metaclass=ABCMeta):

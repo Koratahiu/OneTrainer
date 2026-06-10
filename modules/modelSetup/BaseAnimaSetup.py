@@ -131,6 +131,15 @@ class BaseAnimaSetup(
                 model.noise_scheduler.timesteps,
             )
 
+            if not deterministic:
+                scaled_noisy_latent_image, latent_noise = self._apply_ciop(
+                    scaled_noisy_latent_image,
+                    latent_noise,
+                    config,
+                    generator,
+                    rand
+                )
+
             # Anima latents are 5D (B,16,1,H/8,W/8) — no pack/unpack needed.
             # CosmosTransformer3DModel requires padding_mask in pixel space (1,1,H,W).
             latent_h, latent_w = scaled_noisy_latent_image.shape[-2], scaled_noisy_latent_image.shape[-1]

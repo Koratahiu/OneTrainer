@@ -712,56 +712,74 @@ class OFTModule(PeftBase):
 
 class DoRAOFTModule(OFTModule):
     """
-    DoRA applied to OFT.
-    Since OFT (Orthogonal Finetuning) applies a rotation R such that W_new = W_orig @ R^T,
-    and R is orthogonal, the norm of the weight rows (output features) is preserved.
-    ||W_new|| = ||W_orig||.
+    Dual-Directional DoRA applied to OFT (DOFT).
+    Applies independent magnitude vectors to both input (column-norm) 
+    and output (row-norm) dimensions while OFT handles the directional rotation.
     """
-    dora_log_multiplier: nn.Parameter | None
+    dora_log_multiplier_row: nn.Parameter | None
+    dora_log_multiplier_col: nn.Parameter | None
 
     def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, block_share: bool, oft_scaled: bool, oft_cans: bool, oft_clipped_norm: float | None, **kwargs):
-        self.dora_log_multiplier = None
+        self.dora_log_multiplier_row = None
+        self.dora_log_multiplier_col = None
         super().__init__(prefix, orig_module, oft_block_size, block_share, oft_scaled, oft_cans, oft_clipped_norm, **kwargs)
 
     def initialize_weights(self):
         super().initialize_weights()
 
-        # Calculate multiplier shape
-        multiplier_shape = (self.orig_module.weight.shape[0],)
+        # Row-norm scales the output features, Col-norm scales the input features.
+        if isinstance(self.orig_module, nn.Linear):
+            out_dim = self.orig_module.out_features
+            in_dim = self.orig_module.in_features
+        elif isinstance(self.orig_module, nn.Conv2d):
+            out_dim = self.orig_module.out_channels
+            in_dim = self.orig_module.in_channels
 
-        # Initialize dora_log_multiplier to 0.0 (exp(0) = 1.0 multiplier)
-        self.dora_log_multiplier = nn.Parameter(
-            torch.zeros(
-                multiplier_shape,
-                device=self.orig_module.weight.device
-            )
+        # Initialize multipliers to 0.0 (exp(0) = 1.0 multiplier)
+        self.dora_log_multiplier_row = nn.Parameter(
+            torch.zeros((out_dim,), device=self.orig_module.weight.device)
+        )
+        self.dora_log_multiplier_col = nn.Parameter(
+            torch.zeros((in_dim,), device=self.orig_module.weight.device)
         )
 
     def check_initialized(self):
         super().check_initialized()
-        assert self.dora_log_multiplier is not None
+        assert self.dora_log_multiplier_row is not None
+        assert self.dora_log_multiplier_col is not None
 
     def forward(self, x, *args, **kwargs):
-        # Get the standard OFT output
-        # result = W_orig @ R^T @ x + bias
-        result = super().forward(x, *args, **kwargs)
+        self.check_initialized()
 
-        # Apply Exponential DoRA Scale (exp(0) = Multiplies by 1.0 at step 0)
-        multiplier = torch.exp(self.dora_log_multiplier).to(result.dtype)
+        # 1. Apply Column Norm (Input scaling)
+        col_multiplier = torch.exp(self.dora_log_multiplier_col).to(x.dtype)
         if isinstance(self.orig_module, nn.Conv2d):
-            multiplier = multiplier.view(1, -1, 1, 1)
+            # View as [1, C_in, 1, 1] to broadcast across batch, spatial height, and width
+            col_multiplier = col_multiplier.view(1, -1, 1, 1)
 
+        x_scaled = x * col_multiplier
+
+        # Apply Standard OFT Rotation using the scaled input
+        # Functionally evaluates: (x * D_col) @ (W_orig @ R^T)^T + bias
+        result = super().forward(x_scaled, *args, **kwargs)
+
+        # Apply Row Norm (Output scaling)
+        row_multiplier = torch.exp(self.dora_log_multiplier_row).to(result.dtype)
+        if isinstance(self.orig_module, nn.Conv2d):
+            # View as [1, C_out, 1, 1]
+            row_multiplier = row_multiplier.view(1, -1, 1, 1)
+
+        # Bias Fix
         bias = self.orig_module.bias
         if bias is not None:
             bias_view = bias.view(1, -1, 1, 1) if isinstance(self.orig_module, nn.Conv2d) else bias
 
-            # This equivalent to (result - bias) * m + bias, but
-            # eliminates VRAM overhead by calculating the bias shift on the tiny bias tensor.
-            # y_{dora} = y * m + b * (1 - m)
-            bias_term = bias_view * (1.0 - multiplier)
-            result = result * multiplier + bias_term
+            # while scaling the output. 
+            # y_dora = y * m + b * (1 - m) mathematically equals y_without_bias * m + b
+            bias_term = bias_view * (1.0 - row_multiplier)
+            result = result * row_multiplier + bias_term
         else:
-            result = result * multiplier
+            result = result * row_multiplier
 
         return result
 

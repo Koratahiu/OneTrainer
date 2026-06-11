@@ -143,6 +143,10 @@ class LoraTab:
             components.label(master, 5, 0, "Spectral Norm Clipping",
                              tooltip="Strictly clips the spectral norm of the OFT matrix to guarantee convergence of the Cayley parametrization (requires norm <= 1.0). Smaller values constrain the learned rotation to stay near the identity matrix, limiting adaptation. Default: 1.0 (e.g. 0.8 = 80% of maximum expressiveness). Leave empty to disable.")
             components.entry(master, 5, 1, self.ui_state, "oft_clipped_norm")
+            # DoRA-OFT (DOFT)
+            components.label(master, 3, 3, "DoRA OFT (DOFT)",
+                             tooltip="Combines Weight-Decomposed Low-Rank Adaptation (DoRA) with OFT. By decoupling the weight into magnitude and direction components, it achieves the superior training dynamics of DoRA but with the stability and performance of OFT. Because OFT is norm-preserving, it avoids the heavy re-calculations typically found in standard DoRA, resulting in faster training (same speed as standard OFT) and better convergence.")
+            components.switch(master, 3, 4, self.ui_state, "dora_oft")
 
             # Dropout Percentage
             components.label(master, 2, 0, "Dropout Probability",

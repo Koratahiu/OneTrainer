@@ -145,7 +145,7 @@ class OFTRotationModule(nn.Module):
             # Dynamically update bounds for the next step
             eps_val = (K - L) / denom
 
-            # bmm acts as an opaque boundary, forcing Inductor to 
+            # bmm acts as an opaque boundary, forcing Inductor to
             # materialize eps_val and severing the exponential AST tree.
             # Shape is (B, 1, 1), so ones_like acts as an identity.
             eps_val = torch.bmm(eps_val, torch.ones_like(eps_val))
@@ -214,7 +214,10 @@ class OFTRotationModule(nn.Module):
             # Empirically, BF16 requires 5 steps to converge to ortho error ~1e-2 (its limit)
             # While FP32 takes 7 steps to converge to ortho error ~1e-6
             steps = 5 if G.dtype == torch.bfloat16 else 7
-            R = self._cans_newton_schulz_iteration(G=G, steps=steps)
+            R_half = self._cans_newton_schulz_iteration(G=G, steps=steps)
+            # Squaring the matrix doubles the rotation range from (-90°, 90°) to (-180°, 180°) and
+            # matches Cayley (I + 2Q).
+            R = torch.bmm(R_half, R_half)
         else:
             R = torch.linalg.solve(self.id_mat + Q_skew, self.id_mat - Q_skew, left=False)
 
@@ -227,13 +230,8 @@ class OFTRotationModule(nn.Module):
 
         orig_shape = x.shape
 
-        if self.oft_scaled:
-            scaling_factor = math.sqrt(self.block_size - 1)
-            if not self.oft_cans:
-                scaling_factor = scaling_factor * 2
-            effective_weight = self.weight / scaling_factor
-        else:
-            effective_weight = self.weight
+        scaling_factor = 2 * math.sqrt(self.block_size - 1) if self.oft_scaled else 1
+        effective_weight = self.weight / scaling_factor
 
         orth_rotate = self._cayley_batch(
             effective_weight, self.block_size, self.use_cayley_neumann, self.num_cayley_neumann_terms, self.oft_cans

@@ -736,27 +736,42 @@ class DoRAOFTModule(OFTModule):
             in_dim = self.orig_module.in_channels
 
         # Initialize multipliers to 0.0 (exp(0) = 1.0 multiplier)
-        self.dora_log_multiplier_row = nn.Parameter(
-            torch.zeros((out_dim,), device=self.orig_module.weight.device)
-        )
-        self.dora_log_multiplier_col = nn.Parameter(
-            torch.zeros((in_dim,), device=self.orig_module.weight.device)
-        )
+        self.dora_log_multiplier_row = nn.Parameter(torch.zeros((out_dim,), device=self.orig_module.weight.device))
+        self.dora_log_multiplier_col = nn.Parameter(torch.zeros((in_dim,), device=self.orig_module.weight.device))
+
+        # Global Layer Scale (Starts at 1.0)
+        self.layer_global_scale = nn.Parameter(torch.ones((1,), device=self.orig_module.weight.device))
+
+        # Elastic blending parameter (Starts at 0.0 -> pure L2 for initial stability)
+        self.elastic_alpha = nn.Parameter(torch.zeros((1,), device=self.orig_module.weight.device))
 
     def check_initialized(self):
         super().check_initialized()
         assert self.dora_log_multiplier_row is not None
         assert self.dora_log_multiplier_col is not None
 
+    def elastic_project(self, raw_multiplier, dim):
+        # Pass alpha through a sigmoid so it is strictly bounded between 0 (L2) and 1 (L1)
+        alpha = torch.sigmoid(self.elastic_alpha)
+        # Calculate L2 (RMS) Norm
+        l2_norm = raw_multiplier.norm(p=2) / math.sqrt(dim)
+        # Calculate L1 (Mean) Norm
+        # Since raw_multiplier is exp(), it is strictly positive, so L1 norm is just the sum
+        l1_norm = raw_multiplier.sum() / dim
+        # Blend the norms!
+        blended_norm = (alpha * l1_norm) + ((1.0 - alpha) * l2_norm)
+        # Project the raw multiplier
+        return raw_multiplier / blended_norm.clamp_min(1e-8)
+
     def forward(self, x, *args, **kwargs):
         self.check_initialized()
 
-        # Apply Column Norm (Input scaling) - L2 PRESERVED
         in_dim = self.dora_log_multiplier_col.shape[0]
-        s_raw_col = torch.exp(self.dora_log_multiplier_col).to(x.dtype)
+        out_dim = self.dora_log_multiplier_row.shape[0]
 
-        # Project onto hypersphere of radius sqrt(in_dim)
-        col_multiplier = s_raw_col * (math.sqrt(in_dim) / s_raw_col.norm())
+        # Elastic Project Input (Column)
+        s_raw_col = torch.exp(self.dora_log_multiplier_col).to(x.dtype)
+        col_multiplier = self.elastic_project(s_raw_col, in_dim)
 
         if isinstance(self.orig_module, nn.Conv2d):
             col_multiplier = col_multiplier.view(1, -1, 1, 1)
@@ -766,28 +781,26 @@ class DoRAOFTModule(OFTModule):
         # Apply Standard OFT Rotation 
         result = super().forward(x_scaled, *args, **kwargs)
 
-        # Apply Row Norm (Output scaling) - L2 PRESERVED
-        out_dim = self.dora_log_multiplier_row.shape[0]
+        # Elastic Project Output (Row)
         s_raw_row = torch.exp(self.dora_log_multiplier_row).to(result.dtype)
-
-        # Project onto hypersphere of radius sqrt(out_dim)
-        row_multiplier = s_raw_row * (math.sqrt(out_dim) / s_raw_row.norm())
+        row_multiplier = self.elastic_project(s_raw_row, out_dim)
 
         if isinstance(self.orig_module, nn.Conv2d):
             # View as [1, C_out, 1, 1]
             row_multiplier = row_multiplier.view(1, -1, 1, 1)
 
+        # Apply Global Layer Scale AND Output Multiplier
+        #    gamma * r_projected combines the flexibility of 'raw' with the stability of projections.
+        final_row_scale = row_multiplier * self.layer_global_scale
+
         # Bias Fix
         bias = self.orig_module.bias
         if bias is not None:
             bias_view = bias.view(1, -1, 1, 1) if isinstance(self.orig_module, nn.Conv2d) else bias
-
-            # while scaling the output. 
-            # y_dora = y * m + b * (1 - m) mathematically equals y_without_bias * m + b
-            bias_term = bias_view * (1.0 - row_multiplier)
-            result = result * row_multiplier + bias_term
+            bias_term = bias_view * (1.0 - final_row_scale)
+            result = result * final_row_scale + bias_term
         else:
-            result = result * row_multiplier
+            result = result * final_row_scale
 
         return result
 

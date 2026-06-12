@@ -751,8 +751,11 @@ class DoRAOFTModule(OFTModule):
     def forward(self, x, *args, **kwargs):
         self.check_initialized()
 
-        # 1. Apply Column Norm (Input scaling)
-        col_multiplier = torch.exp(self.dora_log_multiplier_col).to(x.dtype)
+        # Apply Column Norm (Input scaling)
+        # Anchor the input log-multiplier to mean=0.
+        # This completely eliminates the scale ambiguity between row and col.
+        v_col = self.dora_log_multiplier_col - self.dora_log_multiplier_col.mean()
+        col_multiplier = torch.exp(v_col).to(x.dtype)
         if isinstance(self.orig_module, nn.Conv2d):
             # View as [1, C_in, 1, 1] to broadcast across batch, spatial height, and width
             col_multiplier = col_multiplier.view(1, -1, 1, 1)

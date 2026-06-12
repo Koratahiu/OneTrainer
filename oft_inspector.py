@@ -163,8 +163,19 @@ class OFTInspectorApp:
                 has_dora_col = base in dora_mults_col
                 
                 # Default is 1.0 (no scale modification)
-                dora_mult_row = torch.mean(torch.exp(dora_mults_row[base])).item() if has_dora_row else 1.0
-                dora_mult_col = torch.mean(torch.exp(dora_mults_col[base])).item() if has_dora_col else 1.0
+                # Instead of the average, find the maximum absolute deviation from 1.0
+                if has_dora_row:
+                    row_vals = torch.exp(dora_mults_row[base])
+                    # Find the value furthest from 1.0
+                    dora_mult_row = row_vals[torch.argmax(torch.abs(row_vals - 1.0))].item()
+                else:
+                    dora_mult_row = 1.0
+
+                if has_dora_col:
+                    col_vals = torch.exp(dora_mults_col[base] - dora_mults_col[base].mean())
+                    dora_mult_col = col_vals[torch.argmax(torch.abs(col_vals - 1.0))].item()
+                else:
+                    dora_mult_col = 1.0
 
                 layers[base] = {
                     'blocks': r_blocks,

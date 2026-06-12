@@ -172,7 +172,7 @@ class OFTInspectorApp:
                     dora_mult_row = 1.0
 
                 if has_dora_col:
-                    col_vals = torch.exp(dora_mults_col[base] - dora_mults_col[base].mean())
+                    col_vals = torch.exp(dora_mults_col[base])
                     dora_mult_col = col_vals[torch.argmax(torch.abs(col_vals - 1.0))].item()
                 else:
                     dora_mult_col = 1.0

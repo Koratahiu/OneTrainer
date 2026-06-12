@@ -751,23 +751,28 @@ class DoRAOFTModule(OFTModule):
     def forward(self, x, *args, **kwargs):
         self.check_initialized()
 
-        # Apply Column Norm (Input scaling)
-        # Anchor the input log-multiplier to mean=0.
-        # This completely eliminates the scale ambiguity between row and col.
-        v_col = self.dora_log_multiplier_col - self.dora_log_multiplier_col.mean()
-        col_multiplier = torch.exp(v_col).to(x.dtype)
+        # Apply Column Norm (Input scaling) - L2 PRESERVED
+        in_dim = self.dora_log_multiplier_col.shape[0]
+        s_raw_col = torch.exp(self.dora_log_multiplier_col).to(x.dtype)
+
+        # Project onto hypersphere of radius sqrt(in_dim)
+        col_multiplier = s_raw_col * (math.sqrt(in_dim) / s_raw_col.norm())
+
         if isinstance(self.orig_module, nn.Conv2d):
-            # View as [1, C_in, 1, 1] to broadcast across batch, spatial height, and width
             col_multiplier = col_multiplier.view(1, -1, 1, 1)
 
         x_scaled = x * col_multiplier
 
-        # Apply Standard OFT Rotation using the scaled input
-        # Functionally evaluates: (x * D_col) @ (W_orig @ R^T)^T + bias
+        # Apply Standard OFT Rotation 
         result = super().forward(x_scaled, *args, **kwargs)
 
-        # Apply Row Norm (Output scaling)
-        row_multiplier = torch.exp(self.dora_log_multiplier_row).to(result.dtype)
+        # Apply Row Norm (Output scaling) - L2 PRESERVED
+        out_dim = self.dora_log_multiplier_row.shape[0]
+        s_raw_row = torch.exp(self.dora_log_multiplier_row).to(result.dtype)
+
+        # Project onto hypersphere of radius sqrt(out_dim)
+        row_multiplier = s_raw_row * (math.sqrt(out_dim) / s_raw_row.norm())
+
         if isinstance(self.orig_module, nn.Conv2d):
             # View as [1, C_out, 1, 1]
             row_multiplier = row_multiplier.view(1, -1, 1, 1)

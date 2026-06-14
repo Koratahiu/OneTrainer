@@ -12,8 +12,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 class OFTInspectorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("OFT Weight Inspector Pro + Analytics & Diff (Dual & Elastic DOFT Support)")
-        self.root.geometry("1600x850")
+        self.root.title("OFT Weight Inspector Pro + Analytics & Diff")
+        self.root.geometry("1450x850")
         
         # --- Dark Mode Colors ---
         self.bg_color = "#2d2d2d"
@@ -126,33 +126,17 @@ class OFTInspectorApp:
             sd = load_file(path) if path.endswith(".safetensors") else torch.load(path, map_location="cpu")
             layers = {}
             
-            # --- Pre-scan for Dual DoRA Parameters & New Elastic Scalers ---
-            dora_mults_row = {}
-            dora_mults_col = {}
-            global_scales = {}
-            elastic_alphas = {}
-            
+            # --- Pre-scan for DoRA Multiplier ---
+            dora_mults = {}
             for k, v in sd.items():
-                if 'dora_log_multiplier_row' in k:
-                    base = k.replace('.dora_log_multiplier_row', '')
-                    dora_mults_row[base] = v.float()
-                elif 'dora_log_multiplier_col' in k:
-                    base = k.replace('.dora_log_multiplier_col', '')
-                    dora_mults_col[base] = v.float()
-                elif 'dora_log_multiplier' in k:
+                if 'dora_log_multiplier' in k:
                     base = k.replace('.dora_log_multiplier', '')
-                    dora_mults_row[base] = v.float()
-                elif 'layer_global_scale' in k:
-                    base = k.replace('.layer_global_scale', '')
-                    global_scales[base] = v.float()
-                elif 'elastic_alpha' in k:
-                    base = k.replace('.elastic_alpha', '')
-                    elastic_alphas[base] = v.float()
+                    dora_mults[base] = v.float()
             # -------------------------------
 
             for k, v in sd.items():
                 if 'oft' not in k.lower() and 'weight' not in k: continue
-                if any(x in k for x in ['dora_log_multiplier', 'layer_global_scale', 'elastic_alpha']): continue
+                if 'dora_log_multiplier' in k: continue 
                 
                 # Clean key names
                 base = k.replace(".oft_R.weight", "").replace(".weight", "")
@@ -166,40 +150,18 @@ class OFTInspectorApp:
                 l2_norm = torch.linalg.norm(t).item()
                 rot_shift = self.get_rotation_magnitude(t, block_size)
 
-                # --- Dual DoRA Extraction ---
-                has_dora_row = base in dora_mults_row
-                has_dora_col = base in dora_mults_col
-                
-                if has_dora_row:
-                    row_vals = torch.exp(dora_mults_row[base])
-                    dora_mult_row = row_vals[torch.argmax(torch.abs(row_vals - 1.0))].item()
-                else:
-                    dora_mult_row = 1.0
-
-                if has_dora_col:
-                    col_vals = torch.exp(dora_mults_col[base])
-                    dora_mult_col = col_vals[torch.argmax(torch.abs(col_vals - 1.0))].item()
-                else:
-                    dora_mult_col = 1.0
-
-                # --- New Elastic Approach Parameters ---
-                # Default global scale is 1.0 (no scale shift)
-                global_scale = global_scales.get(base, torch.tensor([1.0])).item()
-                
-                # Raw alpha defaults to 0.0, which under sigmoid is 0.5 (perfect balance)
-                raw_alpha = elastic_alphas.get(base, torch.tensor([0.0])).item()
-                effective_alpha = 1.0 / (1.0 + math.exp(-raw_alpha))
+                # --- DoRA Multiplier (Relative Scaler) Checking ---
+                has_dora = base in dora_mults
+                # Default is 1.0 (no scale modification)
+                dora_mult = torch.mean(torch.exp(dora_mults[base])).item() if has_dora else 1.0
 
                 layers[base] = {
                     'blocks': r_blocks,
                     'block_size': block_size,
                     'w_l2': l2_norm,
                     'rot_shift': rot_shift,
-                    'has_dora': has_dora_row or has_dora_col,
-                    'dora_mult_row': dora_mult_row,
-                    'dora_mult_col': dora_mult_col,
-                    'global_scale': global_scale,
-                    'elastic_alpha': effective_alpha
+                    'has_dora': has_dora,
+                    'dora_mult': dora_mult
                 }
             return layers
         except Exception as e:
@@ -216,7 +178,7 @@ class OFTInspectorApp:
         self.current_columns = headers
         for col, head in zip(cols, headers):
             self.tree.heading(col, text=head)
-            width = 250 if col == "layer" else 105
+            width = 300 if col == "layer" else 120
             self.tree.column(col, width=width, anchor=tk.W if col == "layer" else tk.CENTER)
 
     def run_analysis(self):
@@ -228,29 +190,14 @@ class OFTInspectorApp:
         if not r1: return
 
         if mode == "single":
-            cols = ("layer", "blocks", "block_size", "w_l2", "rot_shift", "has_dora", "global_scale", "elastic_alpha", "dora_mult_row", "dora_mult_col")
-            headers = ["Layer Name", "Blocks (R)", "Block Size", "Weight (L2 Norm)", "Rotation Shift (‖R-I‖)", "DoRA Status", "Global Scale (γ)", "Elastic Alpha (α)", "DoRA Row(Out)", "DoRA Col(In)"]
+            cols = ("layer", "blocks", "block_size", "w_l2", "rot_shift", "has_dora", "dora_mult")
+            headers = ["Layer Name", "Blocks (R)", "Block Size", "Weight (L2 Norm)", "Rotation Shift (‖R-I‖)", "DoRA", "DoRA Mult (Mean)"]
             self.format_tree_columns(cols, headers)
 
             for k in sorted(r1.keys()):
                 d = r1[k]
-                row_data = {
-                    "layer": k,
-                    "blocks": d['blocks'], "block_size": d['block_size'],
-                    "w_l2": d['w_l2'], "rot_shift": d['rot_shift'],
-                    "has_dora": "Yes" if d['has_dora'] else "No",
-                    "global_scale": d['global_scale'], "elastic_alpha": d['elastic_alpha'],
-                    "dora_mult_row": d['dora_mult_row'], "dora_mult_col": d['dora_mult_col']
-                }
-                self.results_data.append(row_data)
-                
-                self.tree.insert("", "end", values=(
-                    k, d['blocks'], d['block_size'], 
-                    f"{d['w_l2']:.4f}", f"{d['rot_shift']:.4f}", 
-                    "Yes" if d['has_dora'] else "No", 
-                    f"{d['global_scale']:.4f}", f"{d['elastic_alpha']:.4f}", 
-                    f"{d['dora_mult_row']:.4f}", f"{d['dora_mult_col']:.4f}"
-                ))
+                self.results_data.append({"layer": k, **d})
+                self.tree.insert("", "end", values=(k, d['blocks'], d['block_size'], f"{d['w_l2']:.4f}", f"{d['rot_shift']:.4f}", "Yes" if d['has_dora'] else "No", f"{d['dora_mult']:.4f}"))
             
             self.global_diff_var.set(f"Loaded {len(r1)} OFT layers successfully.")
 
@@ -258,26 +205,23 @@ class OFTInspectorApp:
             r2 = self.get_metrics(self.file2_path.get())
             if not r2: return
 
-            cols = ("layer", "w_l2_1", "w_l2_2", "diff_w", "rot_1", "rot_2", "diff_rot", "dora_status", "g_scale_1", "g_scale_2", "diff_g_scale", "alpha_1", "alpha_2", "diff_alpha", "diff_dora_row", "diff_dora_col")
-            headers = ["Layer Name", "OFT1 W(L2)", "OFT2 W(L2)", "Δ W%", "OFT1 Rot", "OFT2 Rot", "Δ Rot%", "DoRA Status", "OFT1 G-Scale", "OFT2 G-Scale", "Δ G-Scale%", "OFT1 α", "OFT2 α", "Δ α%", "Δ Row%", "Δ Col%"]
+            cols = ("layer", "w_l2_1", "w_l2_2", "diff_w", "rot_1", "rot_2", "diff_rot", "dora_status", "diff_dora")
+            headers = ["Layer Name", "OFT1 W(L2)", "OFT2 W(L2)", "Δ W(L2)%", "OFT1 RotShift", "OFT2 RotShift", "Δ RotShift%", "DoRA(1|2)", "Δ DoRA Mult%"]
             self.format_tree_columns(cols, headers)
 
             all_keys = sorted(set(list(r1.keys()) + list(r2.keys())))
-            g = {key: 0 for key in ["w_l2_1", "w_l2_2", "rot_1", "rot_2", "dora_r_1", "dora_r_2", "dora_c_1", "dora_c_2", "g_scale_1", "g_scale_2", "alpha_1", "alpha_2"]}
+            g = {key: 0 for key in ["w_l2_1", "w_l2_2", "rot_1", "rot_2", "dora_1", "dora_2"]}
             any_dora = False
 
             for k in all_keys:
-                d1 = r1.get(k, {'w_l2':0, 'rot_shift':0, 'has_dora':False, 'dora_mult_row':1.0, 'dora_mult_col':1.0, 'global_scale':1.0, 'elastic_alpha':0.5})
-                d2 = r2.get(k, {'w_l2':0, 'rot_shift':0, 'has_dora':False, 'dora_mult_row':1.0, 'dora_mult_col':1.0, 'global_scale':1.0, 'elastic_alpha':0.5})
+                d1 = r1.get(k, {'w_l2':0, 'rot_shift':0, 'has_dora':False, 'dora_mult':1.0})
+                d2 = r2.get(k, {'w_l2':0, 'rot_shift':0, 'has_dora':False, 'dora_mult':1.0})
                 if d1['has_dora'] or d2['has_dora']:
                     any_dora = True
 
                 diff_w = self.calc_pct_diff(d1['w_l2'], d2['w_l2'])
                 diff_rot = self.calc_pct_diff(d1['rot_shift'], d2['rot_shift'])
-                diff_g_scale = self.calc_pct_diff(d1['global_scale'], d2['global_scale'])
-                diff_alpha = self.calc_pct_diff(d1['elastic_alpha'], d2['elastic_alpha'])
-                diff_dora_row = self.calc_pct_diff(d1['dora_mult_row'], d2['dora_mult_row'])
-                diff_dora_col = self.calc_pct_diff(d1['dora_mult_col'], d2['dora_mult_col'])
+                diff_dora = self.calc_pct_diff(d1['dora_mult'], d2['dora_mult'])
 
                 dora_str = f"{'Y' if d1['has_dora'] else 'N'} | {'Y' if d2['has_dora'] else 'N'}"
 
@@ -285,10 +229,8 @@ class OFTInspectorApp:
                     "layer": k,
                     "w_l2_1": d1['w_l2'], "w_l2_2": d2['w_l2'], "diff_w": diff_w,
                     "rot_1": d1['rot_shift'], "rot_2": d2['rot_shift'], "diff_rot": diff_rot,
-                    "dora_status": dora_str,
-                    "g_scale_1": d1['global_scale'], "g_scale_2": d2['global_scale'], "diff_g_scale": diff_g_scale,
-                    "alpha_1": d1['elastic_alpha'], "alpha_2": d2['elastic_alpha'], "diff_alpha": diff_alpha,
-                    "diff_dora_row": diff_dora_row, "diff_dora_col": diff_dora_col
+                    "dora_1": d1['dora_mult'], "dora_2": d2['dora_mult'], "diff_dora": diff_dora,
+                    "dora_status": dora_str
                 }
                 self.results_data.append(row_data)
 
@@ -296,30 +238,21 @@ class OFTInspectorApp:
                     k, 
                     f"{d1['w_l2']:.4f}", f"{d2['w_l2']:.4f}", f"{diff_w:+.2f}%",
                     f"{d1['rot_shift']:.4f}", f"{d2['rot_shift']:.4f}", f"{diff_rot:+.2f}%",
-                    dora_str,
-                    f"{d1['global_scale']:.4f}", f"{d2['global_scale']:.4f}", f"{diff_g_scale:+.2f}%",
-                    f"{d1['elastic_alpha']:.4f}", f"{d2['elastic_alpha']:.4f}", f"{diff_alpha:+.2f}%",
-                    f"{diff_dora_row:+.2f}%", f"{diff_dora_col:+.2f}%"
+                    dora_str, f"{diff_dora:+.2f}%"
                 ))
 
                 g["w_l2_1"] += d1['w_l2']; g["w_l2_2"] += d2['w_l2']
                 g["rot_1"] += d1['rot_shift']; g["rot_2"] += d2['rot_shift']
-                g["g_scale_1"] += d1['global_scale']; g["g_scale_2"] += d2['global_scale']
-                g["alpha_1"] += d1['elastic_alpha']; g["alpha_2"] += d2['elastic_alpha']
-                g["dora_r_1"] += d1['dora_mult_row']; g["dora_r_2"] += d2['dora_mult_row']
-                g["dora_c_1"] += d1['dora_mult_col']; g["dora_c_2"] += d2['dora_mult_col']
+                g["dora_1"] += d1['dora_mult']; g["dora_2"] += d2['dora_mult']
 
             gd_w = self.calc_pct_diff(g["w_l2_1"], g["w_l2_2"])
             gd_r = self.calc_pct_diff(g["rot_1"], g["rot_2"])
-            gd_gs = self.calc_pct_diff(g["g_scale_1"], g["g_scale_2"])
-            gd_al = self.calc_pct_diff(g["alpha_1"], g["alpha_2"])
+            gd_dora = self.calc_pct_diff(g["dora_1"], g["dora_2"])
             
             if any_dora:
-                gd_d_r = self.calc_pct_diff(g["dora_r_1"], g["dora_r_2"])
-                gd_d_c = self.calc_pct_diff(g["dora_c_1"], g["dora_c_2"])
-                self.global_diff_var.set(f"Drift → W(L2): {gd_w:+.2f}% | Rot: {gd_r:+.2f}% | G-Scale: {gd_gs:+.2f}% | Alpha: {gd_al:+.2f}% | DoRA Row: {gd_d_r:+.2f}% | DoRA Col: {gd_d_c:+.2f}%")
+                self.global_diff_var.set(f"Global Drift → W(L2): {gd_w:+.2f}%  |  Rot: {gd_r:+.2f}%  |  DoRA Mult: {gd_dora:+.2f}%")
             else:
-                self.global_diff_var.set(f"Global Drift → Weight L2: {gd_w:+.2f}%  |  Rotation Shift: {gd_r:+.2f}%  |  G-Scale: {gd_gs:+.2f}%")
+                self.global_diff_var.set(f"Global Drift → Weight L2: {gd_w:+.2f}%  |  Rotation Shift: {gd_r:+.2f}%")
 
     def export_csv(self):
         if not self.results_data: 
@@ -350,8 +283,8 @@ class OFTInspectorApp:
             return
         
         chart_win = tk.Toplevel(self.root)
-        chart_win.title("OFT Advanced Analytics Dashboard")
-        chart_win.geometry("1200x750")
+        chart_win.title("OFT Advanced Analytics")
+        chart_win.geometry("1100x700")
         chart_win.configure(bg=self.bg_color)
         
         notebook = ttk.Notebook(chart_win)
@@ -381,36 +314,19 @@ class OFTInspectorApp:
             ax2.legend()
             self.add_tab(notebook, f2, "Rotation Shift")
 
-            # Tab 3: Elastic Multipliers (Global & Blending Exponent)
-            f_elastic = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
-            ax_elastic = f_elastic.add_subplot(111)
-            ax_el_twin = ax_elastic.twinx()
-            ax_elastic.bar(x - 0.2, [r.get("global_scale", 1.0) for r in self.results_data], 0.4, label='Global Scale (γ)', color='#00e676')
-            ax_el_twin.plot(x, [r.get("elastic_alpha", 0.5) for r in self.results_data], label='Elastic Alpha (α)', marker='s', color='#29b6f6', linewidth=2)
-            ax_elastic.set_title("OFT Global Scale (γ) and Structural Elastic Blending (α) per Layer")
-            ax_elastic.set_xticks(x); ax_elastic.set_xticklabels(layers, rotation=90, fontsize=8)
-            ax_elastic.set_ylabel("Global Scale (γ) Value", color='#00e676')
-            ax_el_twin.set_ylabel("Effective Alpha (0=L2, 1=L1)", color='#29b6f6')
-            # Combine legends
-            lines, labels = ax_elastic.get_legend_handles_labels()
-            lines2, labels2 = ax_el_twin.get_legend_handles_labels()
-            ax_elastic.legend(lines + lines2, labels + labels2, loc='upper left')
-            self.add_tab(notebook, f_elastic, "Global Scale & Alpha")
-
-            # Tab 4: Dual DoRA Multipliers (Conditional)
-            if any(r.get("has_dora") != "No" for r in self.results_data):
+            # Tab 3: DoRA Multiplier (Conditional)
+            if any(r.get("has_dora") for r in self.results_data):
                 f3 = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
                 ax3 = f3.add_subplot(111)
-                ax3.bar(x - 0.2, [r.get("dora_mult_row", 1.0) for r in self.results_data], 0.4, label='DoRA Row (Output)', color='#ab47bc')
-                ax3.bar(x + 0.2, [r.get("dora_mult_col", 1.0) for r in self.results_data], 0.4, label='DoRA Col (Input)', color='#ff9800')
-                ax3.axhline(1.0, color='white', linestyle='--', linewidth=1)
-                ax3.set_title("Dual DoRA Channel Multipliers Magnitude per Layer (Baseline = 1.0)")
+                ax3.bar(x, [r["dora_mult"] for r in self.results_data], 0.5, label='DoRA Multiplier (Mean)', color='#ab47bc')
+                ax3.axhline(1.0, color='white', linestyle='--', linewidth=1) # Baseline multiplier line
+                ax3.set_title("DoRA Multiplier Magnitude per Layer (Baseline = 1.0)")
                 ax3.set_xticks(x); ax3.set_xticklabels(layers, rotation=90, fontsize=8)
                 ax3.legend()
-                self.add_tab(notebook, f3, "DoRA Channels")
+                self.add_tab(notebook, f3, "DoRA Multiplier")
 
         else:
-            has_dora = any(r.get("dora_status") != "N | N" for r in self.results_data)
+            has_dora = any(r.get("dora_1", 1.0) != 1.0 or r.get("dora_2", 1.0) != 1.0 for r in self.results_data)
 
             # Tab 1: Weight L2 Compare
             f1 = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
@@ -434,51 +350,26 @@ class OFTInspectorApp:
             ax2.legend()
             self.add_tab(notebook, f2, "Rotation Compare")
 
-            # Tab 3: Global Scale & Elastic Alpha Compare
-            f_elastic_comp = plt.Figure(figsize=(10, 6), facecolor=self.bg_color)
-            ax_gs = f_elastic_comp.add_subplot(211)
-            ax_al = f_elastic_comp.add_subplot(212)
-            
-            ax_gs.plot(x, [r.get("g_scale_1", 1.0) for r in self.results_data], label='OFT 1 - Global Scale (γ)', alpha=0.8, color='#00e676')
-            ax_gs.plot(x, [r.get("g_scale_2", 1.0) for r in self.results_data], label='OFT 2 - Global Scale (γ)', alpha=0.8, color='#d500f9')
-            ax_gs.set_title("Global Layer Volume Scale Comparison")
-            ax_gs.legend()
-            ax_gs.set_xticks(x); ax_gs.set_xticklabels([])
-            
-            ax_al.plot(x, [r.get("alpha_1", 0.5) for r in self.results_data], label='OFT 1 - Alpha (α)', alpha=0.8, color='#29b6f6')
-            ax_al.plot(x, [r.get("alpha_2", 0.5) for r in self.results_data], label='OFT 2 - Alpha (α)', alpha=0.8, color='#ff9100')
-            ax_al.axhline(0.5, color='gray', linestyle='--', linewidth=0.8)
-            ax_al.set_title("Elastic Norm Blending Comparison (0=L2 Norm, 1=L1 Norm)")
-            ax_al.legend()
-            ax_al.set_xticks(x); ax_al.set_xticklabels(layers, rotation=90, fontsize=8)
-            self.add_tab(notebook, f_elastic_comp, "Scale & Alpha Compare")
-
-            # Tab 4: DoRA Channels Compare (Conditional)
+            # Tab 3: DoRA Compare (Conditional)
             if has_dora:
                 f_dora = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
                 ax_dora = f_dora.add_subplot(111)
-                ax_dora.plot(x, [r.get("dora_r_1", 1.0) for r in self.results_data], label='OFT 1 - Row', alpha=0.8, color='#ab47bc')
-                ax_dora.plot(x, [r.get("dora_r_2", 1.0) for r in self.results_data], label='OFT 2 - Row', alpha=0.8, color='#ff7043')
-                ax_dora.plot(x, [r.get("dora_c_1", 1.0) for r in self.results_data], label='OFT 1 - Col', alpha=0.8, color='#29b6f6', linestyle='--')
-                ax_dora.plot(x, [r.get("dora_c_2", 1.0) for r in self.results_data], label='OFT 2 - Col', alpha=0.8, color='#66bb6a', linestyle='--')
+                ax_dora.plot(x, [r["dora_1"] for r in self.results_data], label='OFT 1 - DoRA Mult', alpha=0.8, color='#ab47bc')
+                ax_dora.plot(x, [r["dora_2"] for r in self.results_data], label='OFT 2 - DoRA Mult', alpha=0.8, color='#ff7043')
+                ax_dora.fill_between(x, [r["dora_1"] for r in self.results_data], [r["dora_2"] for r in self.results_data], color='gray', alpha=0.2)
                 ax_dora.axhline(1.0, color='white', linestyle='--', linewidth=1)
-                ax_dora.set_title("Dual DoRA Channel Scaler Comparison")
+                ax_dora.set_title("DoRA Relative Scaler (Multiplier) Comparison")
                 ax_dora.set_xticks(x); ax_dora.set_xticklabels(layers, rotation=90, fontsize=8)
                 ax_dora.legend()
                 self.add_tab(notebook, f_dora, "DoRA Compare")
 
-            # Tab 5: % Difference Scatter
+            # Tab 4: % Difference Scatter
             f3 = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
             ax3 = f3.add_subplot(111)
             ax3.scatter(x, [r["diff_w"] for r in self.results_data], label='Δ Weight(L2) %', color='#ba68c8')
             ax3.scatter(x, [r["diff_rot"] for r in self.results_data], label='Δ RotShift %', color='#00bcd4')
-            ax3.scatter(x, [r.get("diff_g_scale", 0) for r in self.results_data], label='Δ G-Scale (γ) %', color='#00e676', marker='p')
-            ax3.scatter(x, [r.get("diff_alpha", 0) for r in self.results_data], label='Δ Alpha (α) %', color='#29b6f6', marker='*')
-            
             if has_dora:
-                ax3.scatter(x, [r.get("diff_dora_row", 0) for r in self.results_data], label='Δ Row Multiplier %', color='#ffca28', marker='^')
-                ax3.scatter(x, [r.get("diff_dora_col", 0) for r in self.results_data], label='Δ Col Multiplier %', color='#4caf50', marker='v')
-                
+                ax3.scatter(x, [r["diff_dora"] for r in self.results_data], label='Δ DoRA Mult %', color='#ffca28', marker='^')
             ax3.axhline(0, color='white', linestyle='--', linewidth=1)
             ax3.set_title("Percentage Drift Across Layers (Baseline at 0%)")
             ax3.set_xticks(x); ax3.set_xticklabels(layers, rotation=90, fontsize=8)

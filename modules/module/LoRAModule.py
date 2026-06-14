@@ -712,95 +712,56 @@ class OFTModule(PeftBase):
 
 class DoRAOFTModule(OFTModule):
     """
-    Dual-Directional DoRA applied to OFT (DOFT).
-    Applies independent magnitude vectors to both input (column-norm) 
-    and output (row-norm) dimensions while OFT handles the directional rotation.
+    DoRA applied to OFT.
+    Since OFT (Orthogonal Finetuning) applies a rotation R such that W_new = W_orig @ R^T,
+    and R is orthogonal, the norm of the weight rows (output features) is preserved.
+    ||W_new|| = ||W_orig||.
     """
-    dora_log_multiplier_row: nn.Parameter | None
-    dora_log_multiplier_col: nn.Parameter | None
+    dora_log_multiplier: nn.Parameter | None
 
     def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, block_share: bool, oft_scaled: bool, oft_cans: bool, oft_clipped_norm: float | None, **kwargs):
-        self.dora_log_multiplier_row = None
-        self.dora_log_multiplier_col = None
+        self.dora_log_multiplier = None
         super().__init__(prefix, orig_module, oft_block_size, block_share, oft_scaled, oft_cans, oft_clipped_norm, **kwargs)
 
     def initialize_weights(self):
         super().initialize_weights()
 
-        # Row-norm scales the output features, Col-norm scales the input features.
-        if isinstance(self.orig_module, nn.Linear):
-            out_dim = self.orig_module.out_features
-            in_dim = self.orig_module.in_features
-        elif isinstance(self.orig_module, nn.Conv2d):
-            out_dim = self.orig_module.out_channels
-            in_dim = self.orig_module.in_channels
+        # Calculate multiplier shape
+        multiplier_shape = (self.orig_module.weight.shape[0],)
 
-        # Initialize multipliers to 0.0 (exp(0) = 1.0 multiplier)
-        self.dora_log_multiplier_row = nn.Parameter(torch.zeros((out_dim,), device=self.orig_module.weight.device))
-        self.dora_log_multiplier_col = nn.Parameter(torch.zeros((in_dim,), device=self.orig_module.weight.device))
-
-        # Global Layer Scale (Starts at 1.0)
-        self.layer_global_scale = nn.Parameter(torch.ones((1,), device=self.orig_module.weight.device))
-
-        # Elastic blending parameter (Starts at 0.0 -> pure L2 for initial stability)
-        self.elastic_alpha = nn.Parameter(torch.zeros((1,), device=self.orig_module.weight.device))
+        # Initialize dora_log_multiplier to 0.0 (exp(0) = 1.0 multiplier)
+        self.dora_log_multiplier = nn.Parameter(
+            torch.zeros(
+                multiplier_shape,
+                device=self.orig_module.weight.device
+            )
+        )
 
     def check_initialized(self):
         super().check_initialized()
-        assert self.dora_log_multiplier_row is not None
-        assert self.dora_log_multiplier_col is not None
-
-    def elastic_project(self, raw_multiplier, dim):
-        # Pass alpha through a sigmoid so it is strictly bounded between 0 (L2) and 1 (L1)
-        alpha = torch.sigmoid(self.elastic_alpha)
-        # Calculate L2 (RMS) Norm
-        l2_norm = raw_multiplier.norm(p=2) / math.sqrt(dim)
-        # Calculate L1 (Mean) Norm
-        # Since raw_multiplier is exp(), it is strictly positive, so L1 norm is just the sum
-        l1_norm = raw_multiplier.sum() / dim
-        # Blend the norms!
-        blended_norm = (alpha * l1_norm) + ((1.0 - alpha) * l2_norm)
-        # Project the raw multiplier
-        return raw_multiplier / blended_norm.clamp_min(1e-8)
+        assert self.dora_log_multiplier is not None
 
     def forward(self, x, *args, **kwargs):
-        self.check_initialized()
+        # Get the standard OFT output
+        # result = W_orig @ R^T @ x + bias
+        result = super().forward(x, *args, **kwargs)
 
-        in_dim = self.dora_log_multiplier_col.shape[0]
-        out_dim = self.dora_log_multiplier_row.shape[0]
-
-        # Elastic Project Input (Column)
-        s_raw_col = torch.exp(self.dora_log_multiplier_col).to(x.dtype)
-        col_multiplier = self.elastic_project(s_raw_col, in_dim)
-
+        # Apply Exponential DoRA Scale (exp(0) = Multiplies by 1.0 at step 0)
+        multiplier = torch.exp(self.dora_log_multiplier).to(result.dtype)
         if isinstance(self.orig_module, nn.Conv2d):
-            col_multiplier = col_multiplier.view(1, -1, 1, 1)
+            multiplier = multiplier.view(1, -1, 1, 1)
 
-        x_scaled = x * col_multiplier
-
-        # Apply Standard OFT Rotation 
-        result = super().forward(x_scaled, *args, **kwargs)
-
-        # Elastic Project Output (Row)
-        s_raw_row = torch.exp(self.dora_log_multiplier_row).to(result.dtype)
-        row_multiplier = self.elastic_project(s_raw_row, out_dim)
-
-        if isinstance(self.orig_module, nn.Conv2d):
-            # View as [1, C_out, 1, 1]
-            row_multiplier = row_multiplier.view(1, -1, 1, 1)
-
-        # Apply Global Layer Scale AND Output Multiplier
-        #    gamma * r_projected combines the flexibility of 'raw' with the stability of projections.
-        final_row_scale = row_multiplier * self.layer_global_scale
-
-        # Bias Fix
         bias = self.orig_module.bias
         if bias is not None:
             bias_view = bias.view(1, -1, 1, 1) if isinstance(self.orig_module, nn.Conv2d) else bias
-            bias_term = bias_view * (1.0 - final_row_scale)
-            result = result * final_row_scale + bias_term
+
+            # This equivalent to (result - bias) * m + bias, but
+            # eliminates VRAM overhead by calculating the bias shift on the tiny bias tensor.
+            # y_{dora} = y * m + b * (1 - m)
+            bias_term = bias_view * (1.0 - multiplier)
+            result = result * multiplier + bias_term
         else:
-            result = result * final_row_scale
+            result = result * multiplier
 
         return result
 

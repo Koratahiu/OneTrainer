@@ -59,15 +59,10 @@ def init_model_parameters(
     #to be safe, do that before the optimizer is created because the optimizer could take copies
     multi.broadcast_parameters(parameters.parameters(), train_device)
 
-    layer_key_fn = None
-    if model.train_config.optimizer.MuonWithAuxAdam:
-        print("INFO: Creating layer keys for MuonWithAuxAdam.")
-        layer_key_fn = build_muon_adam_key_fn(model, model.train_config)
-
     from modules.util import create
 
     model.optimizer = create.create_optimizer(
-        parameters, model.optimizer_state_dict, model.train_config, layer_key_fn=layer_key_fn, model=model
+        parameters, model.optimizer_state_dict, model.train_config, model=model
     )
 
     if model.optimizer is not None:

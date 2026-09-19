@@ -112,12 +112,8 @@ class TrainOptimizerConfig(BaseConfig):
     nnmf_factor: bool
     orthogonal_gradient: str
     use_atan2: bool
-    use_AdEMAMix: bool
-    beta3_ema: float
-    alpha_grad: float
     beta1_warmup: int
     min_beta1: float
-    Simplified_AdEMAMix: False
     kourkoutas_beta: False
     schedulefree_c: float
     ns_steps: int
@@ -136,7 +132,6 @@ class TrainOptimizerConfig(BaseConfig):
     accelerated_ns: bool
     cautious_wd: bool
     approx_mars: bool
-    auto_kappa_p: bool
     compile: bool
     spectral_normalization: bool
     stochastic_sign: bool
@@ -260,12 +255,8 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("nnmf_factor", False, bool, False))
         data.append(("orthogonal_gradient", "disabled", str, False))
         data.append(("use_atan2", False, bool, False))
-        data.append(("use_AdEMAMix", False, bool, False))
-        data.append(("beta3_ema", None, float, True))
-        data.append(("alpha_grad", None, float, True))
         data.append(("beta1_warmup", None, int, True))
         data.append(("min_beta1", None, float, True))
-        data.append(("Simplified_AdEMAMix", False, bool, False))
         data.append(("kourkoutas_beta", False, bool, False))
         data.append(("schedulefree_c", None, float, True))
         data.append(("ns_steps", None, int, True))
@@ -284,7 +275,6 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("accelerated_ns", False, bool, False))
         data.append(("cautious_wd", False, bool, False))
         data.append(("approx_mars", False, bool, False))
-        data.append(("auto_kappa_p", False, bool, False))
         data.append(("compile", False, bool, False))
         data.append(("spectral_normalization", False, bool, False))
         data.append(("stochastic_sign", False, bool, False))

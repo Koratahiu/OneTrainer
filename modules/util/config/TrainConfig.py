@@ -132,7 +132,7 @@ class TrainOptimizerConfig(BaseConfig):
     accelerated_ns: False
     cautious_wd: False
     approx_mars: False
-    compile: bool
+    compile: False
     spectral_normalization: bool
     stochastic_sign: bool
     centered_wd: float

@@ -95,23 +95,23 @@ class TrainOptimizerConfig(BaseConfig):
     adam_debias: bool
     slice_p: int
     cautious: bool
-    weight_decay_by_lr: bool
-    prodigy_steps: int
-    use_speed: bool
-    split_groups: bool
-    split_groups_mean: bool
-    factored: bool
-    factored_fp32: bool
-    use_stableadamw: bool
-    use_cautious: bool
-    use_grams: bool
-    use_adopt: bool
-    d_limiter: bool
-    use_schedulefree: bool
-    use_orthograd: bool
-    nnmf_factor: bool
-    orthogonal_gradient: str
-    use_atan2: bool
+    weight_decay_by_lr: True
+    prodigy_steps: 0
+    use_speed: False
+    split_groups: True
+    split_groups_mean: True
+    factored: True
+    factored_fp32: True
+    use_stableadamw: True
+    use_cautious: False
+    use_grams: False
+    use_adopt: False
+    d_limiter: True
+    use_schedulefree: True
+    use_orthograd: False
+    nnmf_factor: False
+    orthogonal_gradient: False
+    use_atan2: False
     beta1_warmup: int
     min_beta1: float
     kourkoutas_beta: False
@@ -124,14 +124,14 @@ class TrainOptimizerConfig(BaseConfig):
     muon_te1_adam_lr: float
     muon_te2_adam_lr: float
     muon_adam_config: dict
-    rms_rescaling: bool
-    normuon_variant: bool
+    rms_rescaling: True
+    normuon_variant: False
     beta2_normuon: float
-    low_rank_ortho: bool
+    low_rank_ortho: False
     ortho_rank: int
-    accelerated_ns: bool
-    cautious_wd: bool
-    approx_mars: bool
+    accelerated_ns: False
+    cautious_wd: False
+    approx_mars: False
     compile: bool
     spectral_normalization: bool
     stochastic_sign: bool

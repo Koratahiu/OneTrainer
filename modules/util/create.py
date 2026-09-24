@@ -695,6 +695,7 @@ def create_optimizer(
                 state_precision=optimizer_config.state_precision if optimizer_config.state_precision is not None else "auto",
                 snr_cond=optimizer_config.snr_cond if optimizer_config.snr_cond is not None else False,
                 geometric_wd=optimizer_config.geometric_wd if optimizer_config.geometric_wd is not None else False,
+                skew_sinkoft=optimizer_config.skew_sinkoft if optimizer_config.skew_sinkoft is not None else False,
             )
 
         # ADAMW_ADV Optimizer

@@ -146,6 +146,7 @@ class TrainOptimizerConfig(BaseConfig):
     nesterov_coef: float
     snr_cond: bool
     geometric_wd: bool
+    skew_sinkoft: bool
 
     def __init__(self, data: list[(str, Any, type, bool)]):
         super().__init__(
@@ -289,6 +290,7 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("nesterov_coef", None, float, True))
         data.append(("snr_cond", False, bool, False))
         data.append(("geometric_wd", False, bool, False))
+        data.append(("skew_sinkoft", False, bool, False))
 
         return TrainOptimizerConfig(data)
 

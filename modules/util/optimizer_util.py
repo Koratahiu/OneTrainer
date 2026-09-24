@@ -463,6 +463,7 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "centered_wd": 0.0,
         "centered_wd_mode": "full",
         "state_precision": "auto",
+        "skew_sinkoft": False,
     },
     Optimizer.ADAMW_ADV: {
         "beta1": 0.9,

@@ -98,12 +98,12 @@ class OFTRotationModule(nn.Module):
         Q_skew = self._pytorch_skew_symmetric(Q, block_size)
 
         if use_cayley_neumann:
-            I = torch.eye(block_size, device=Q.device, dtype=Q.dtype).repeat(b, 1, 1)
+            eye_matrix = torch.eye(block_size, device=Q.device, dtype=Q.dtype).repeat(b, 1, 1)
             Q_squared = torch.bmm(Q_skew, Q_skew)
             # inner = 2I + 2Q + Q^2
-            inner = I * 2.0 + Q_skew * 2.0 + Q_squared
+            inner = eye_matrix * 2.0 + Q_skew * 2.0 + Q_squared
             # R = I + 2Q + Q^2 * inner
-            R = I + Q_skew * 2.0 + torch.bmm(Q_squared, inner)
+            R = eye_matrix + Q_skew * 2.0 + torch.bmm(Q_squared, inner)
         else:
             id_mat = (
                 torch.eye(Q_skew.shape[-1], device=Q_skew.device)

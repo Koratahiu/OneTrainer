@@ -63,11 +63,10 @@ class OFTRotationModule(nn.Module):
             # allowing inference tools to automatically detect scaled oft.
             self.register_buffer("scaled_oft", torch.tensor(True))
         self.oft_scaled = oft_scaled
-        self.use_cayley_neumann = use_cayley_neumann and not oft_cans
+        self.use_cayley_neumann = use_cayley_neumann
         self.oft_cans = oft_cans
         if oft_cans:
             self.register_buffer("cans_oft", torch.tensor(True))
-        self.use_cayley_neumann = use_cayley_neumann
         if use_matrix_exp:
             # Register a persistent buffer to indicate this module uses Matrix exp. mode.
             self.register_buffer("matrix_exp_oft", torch.tensor(True))
@@ -77,9 +76,6 @@ class OFTRotationModule(nn.Module):
         self.register_buffer("rows", rows, persistent=False)
         self.register_buffer("cols", cols, persistent=False)
         self.dropout = MultiplicativeDropoutLayer(p=dropout_probability)
-        if not self.use_cayley_neumann:
-            id_mat = (torch.eye(block_size).unsqueeze(0).expand(r, block_size, block_size))
-            self.register_buffer("id_mat", id_mat, persistent=False)
 
     def _pytorch_skew_symmetric(self, vec, block_size):
         batch_size = vec.shape[0]
@@ -159,10 +155,20 @@ class OFTRotationModule(nn.Module):
         Q_skew = self._pytorch_skew_symmetric(Q, block_size)
 
         if oft_cans:
-            # Compute G = (I + Q)^2 = I + 2Q + Q^2
-            # Squaring the matrix doubles the rotation range and matches Cayley (I + 2Q).
+            eye_matrix = torch.eye(block_size, device=Q_skew.device, dtype=Q_skew.dtype).repeat(b, 1, 1)
             Q_squared = torch.bmm(Q_skew, Q_skew)
-            G = self.id_mat + 2 * Q_skew + Q_squared
+            if use_matrix_exp:
+                # Matrix-exp path
+                c = 4.0 - 2.0 * math.sqrt(2.0)
+                d = 6.0 - 4.0 * math.sqrt(2.0)
+                inner = eye_matrix * 2.0 + Q_skew * c + Q_squared * d
+                G = eye_matrix + Q_skew * 2.0 + torch.bmm(Q_squared, inner)
+            else:
+                # Cayley path
+                # Compute G = (I + Q)^2 = I + 2Q + Q^2
+                # Squaring the matrix doubles the rotation range and matches Cayley (I + 2Q).
+                G = eye_matrix + 2 * Q_skew + Q_squared
+
             # Empirically, BF16 requires 5 steps to converge to ortho error ~1e-2 (its limit)
             # While FP32 takes 7 steps to converge to ortho error ~1e-6
             steps = 5 if G.dtype == torch.bfloat16 else 7
@@ -182,7 +188,8 @@ class OFTRotationModule(nn.Module):
             # R = I + 2Q + Q^2 * inner
             R = eye_matrix + Q_skew * 2.0 + torch.bmm(Q_squared, inner)
         else:
-            R = torch.linalg.solve(self.id_mat + Q_skew, self.id_mat - Q_skew, left=False)
+            id_mat = (torch.eye(block_size).unsqueeze(0).expand(self.r, block_size, block_size))
+            R = torch.linalg.solve(id_mat + Q_skew, id_mat - Q_skew, left=False)
 
         return R.to(previous_dtype)
 

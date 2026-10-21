@@ -26,6 +26,11 @@ class TensorboardProcess(subprocess.Popen):
     def __init__(self, args):
         self._stopping = False
         self._debug = bool(os.environ.get("OT_DEBUG_WARNINGS"))
+
+        # If args starts with 'tensorboard' / 'tensorboard.exe', run it via python -m tensorboard.main
+        if args and "tensorboard" in str(args[0]).lower():
+            args = [sys.executable, "-m", "tensorboard.main"] + list(args[1:])
+
         super().__init__(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
         self._reader = threading.Thread(target=self._read_output, name="tensorboard-output", daemon=True)
         self._reader.start()

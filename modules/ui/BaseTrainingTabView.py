@@ -821,9 +821,9 @@ class BaseTrainingTabView(ABC):
             self.components.switch(frame, row, 1, ui_state, "dynamic_timestep_shifting")
             row += 1
 
-        self.label(frame, row, 0, "CEP Gamma",
-                         tooltip="Conditional Embedding Perturbation. Inject a slight noise into the TEs outputs to enhance the quality, diversity, and fidelity of the generated images. Gamma controls perturbation noise magnitude, recommended value: 0.02 (2% noise).")
-        self.entry(frame, row, 1, ui_state, "cep_gamma", required=True)
+        self.components.label(frame, row, 0, "CEP Gamma",
+                              tooltip="Conditional Embedding Perturbation. Inject a slight noise into the TEs outputs to enhance the quality, diversity, and fidelity of the generated images. Gamma controls perturbation noise magnitude, recommended value: 0.02 (2% noise).")
+        self.components.entry(frame, row, 1, ui_state, "cep_gamma", required=True)
         row += 1
 
     def __create_masked_frame(self, master, row, ui_state):

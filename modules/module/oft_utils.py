@@ -218,6 +218,7 @@ class OFTRotationModule(nn.Module):
                     orth_rotate.view(n, k, b_f, b_f).transpose(-1, -2)
                 ).permute(0, 2, 1, 3).reshape(n, b_c, b_c).transpose(-1, -2)
 
+            M = M.to(device=x.device, dtype=x.dtype)
             x_reshaped = x.reshape(-1, n, b_c).permute(1, 0, 2)
             x_rotated_reshaped = torch.bmm(x_reshaped, M).permute(1, 0, 2)
         else:

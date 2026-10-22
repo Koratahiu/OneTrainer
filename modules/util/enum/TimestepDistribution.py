@@ -10,6 +10,7 @@ class TimestepDistribution(Enum):
     INVERTED_PARABOLA = 'INVERTED_PARABOLA'
     BETA = 'BETA'
     SPEED = 'SPEED'
+    ENTROPIC = 'ENTROPIC'
 
     def __str__(self):
         return self.value

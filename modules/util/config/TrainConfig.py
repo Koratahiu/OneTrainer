@@ -534,6 +534,7 @@ class TrainConfig(BaseConfig):
 
     timestep_shift: float
     dynamic_timestep_shifting: bool
+    entropic_schedule_path: str
 
     # unet
     unet: TrainModelPartConfig
@@ -1206,6 +1207,7 @@ class TrainConfig(BaseConfig):
         data.append(("noising_bias", 0.0, float, False))
         data.append(("timestep_shift", 1.0, float, False))
         data.append(("dynamic_timestep_shifting", False, bool, False))
+        data.append(("entropic_schedule_path", "", str, False))
         data.append(("cep_gamma", 0.0, float, False))
 
 

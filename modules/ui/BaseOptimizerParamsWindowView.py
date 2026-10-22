@@ -166,7 +166,7 @@ class BaseOptimizerParamsWindowView:
                     width=20, padx=5                )
                 self.toggle_muon_adam_button()
             elif type == 'CenteredWDMode':
-                self.components.options(master, row, col + 1, ["full", "float8", "int8", "int4"], optimizer_ui_state, key,
+                self.components.options(master, row, col + 1, ["full", "float8", "int8", "int4", "ptq1_0"], optimizer_ui_state, key,
                                    command=update_user_pref_cb)
             elif type == 'StatePrecision':
                 self.components.options(master, row, col + 1, ["auto", "factored", "fp32", "bf16_sr", "int8_sr"], optimizer_ui_state, key,

@@ -219,7 +219,7 @@ class OFTRotationModule(nn.Module):
                 ).permute(0, 2, 1, 3).reshape(n, b_c, b_c).transpose(-1, -2)
 
             x_reshaped = x.reshape(-1, n, b_c).permute(1, 0, 2)
-            x_rotated_reshaped = torch.bmm(x_reshaped, M).permute(1, 0, 2)
+            x_rotated_reshaped = torch.bmm(x_reshaped, M.to(dtype=x_reshaped.dtype)).permute(1, 0, 2)
         else:
             x_reshaped = x.reshape(-1, rank, self.block_size).permute(1, 0, 2)
             x_rotated_reshaped = torch.bmm(x_reshaped, orth_rotate).permute(1, 0, 2)

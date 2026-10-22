@@ -535,6 +535,10 @@ class TrainConfig(BaseConfig):
     timestep_shift: float
     dynamic_timestep_shifting: bool
     entropic_schedule_path: str
+    entropic_num_samples: int
+    entropic_num_eval_steps: int
+    entropic_timestep_chunk_size: int
+    entropic_schedule_resolution: int
 
     # unet
     unet: TrainModelPartConfig
@@ -1208,6 +1212,10 @@ class TrainConfig(BaseConfig):
         data.append(("timestep_shift", 1.0, float, False))
         data.append(("dynamic_timestep_shifting", False, bool, False))
         data.append(("entropic_schedule_path", "", str, False))
+        data.append(("entropic_num_samples", 32, int, False))
+        data.append(("entropic_num_eval_steps", 8, int, False))
+        data.append(("entropic_timestep_chunk_size", 8, int, False))
+        data.append(("entropic_schedule_resolution", None, int, True))
         data.append(("cep_gamma", 0.0, float, False))
 
 

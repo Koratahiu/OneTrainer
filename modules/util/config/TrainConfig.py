@@ -406,6 +406,8 @@ class QuantizationConfig(BaseConfig):
     fallback_dtype: DataType
     svd_dtype: DataType
     svd_rank: int
+    quant_rot_dtype: DataType
+    quant_rot_block_size: int
     cache_dir: str
 
     @staticmethod
@@ -419,6 +421,8 @@ class QuantizationConfig(BaseConfig):
         data.append(("fallback_dtype", DataType.BFLOAT_16, DataType, False))
         data.append(("svd_dtype", DataType.NONE, DataType, False))
         data.append(("svd_rank", 16, int, False))
+        data.append(("quant_rot_dtype", DataType.NONE, DataType, False))
+        data.append(("quant_rot_block_size", 16, int, False))
         data.append(("cache_dir", None, str, True))
         return QuantizationConfig(data)
 

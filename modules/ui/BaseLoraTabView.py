@@ -75,11 +75,33 @@ class BaseLoraTabView:
 
         # OFTv2
         elif peft_type == PeftType.OFT_2:
+            # Left column: Parameters
             # Block Size
             self.components.label(master, 1, 0, f"{name} Block Size",
                                   tooltip=f"The block size parameter used when creating a new {name}")
             self.components.entry(master, 1, 1, ui_state, "oft_block_size", required=True)
 
+            # Clip OFT max norm
+            self.components.label(master, 2, 0, "Spectral Norm Clipping",
+                                  tooltip="Strictly clips the spectral norm of the OFT matrix to guarantee convergence of the Cayley parametrization (requires norm <= 1.0). Smaller values constrain the learned rotation to stay near the identity matrix, limiting adaptation. Default: 1.0 (e.g. 0.8 = 80% of maximum expressiveness). Leave empty to disable.")
+            self.components.entry(master, 2, 1, ui_state, "oft_clipped_norm")
+
+            # Dropout Percentage
+            self.components.label(master, 3, 0, "Dropout Probability",
+                                  tooltip="Dropout probability. This percentage of the rotated adapter nodes that will be randomly restored to the base model initial statue. Helps with overfitting. 0 disables, 1 maximum.")
+            self.components.entry(master, 3, 1, ui_state, "dropout_probability")
+
+            # OFT weight dtype
+            self.components.label(master, 4, 0, f"{name} Weight Data Type",
+                                  tooltip=f"The {name} weight data type used for training. This can reduce memory consumption, but reduces precision")
+            self.components.options_kv(master, 4, 1, controller.get_lora_weight_dtypes(), ui_state, "lora_weight_dtype")
+
+            # Bundle Embeddings
+            self.components.label(master, 5, 0, "Bundle Embeddings",
+                                  tooltip=f"Bundles any additional embeddings into the {name} output file, rather than as separate files")
+            self.components.switch(master, 5, 1, ui_state, "bundle_additional_embeddings")
+
+            # Right column: Toggles/Switches
             # Block Share
             self.components.label(master, 1, 3, "Block Share",
                                   tooltip="Share the OFT parameters between blocks. A single rotation matrix is shared across all blocks within a layer, drastically cutting the number of trainable parameters and yielding very compact adapter files, potentially improving generalization but at the cost of significant expressiveness, which can lead to underfitting on more complex or diverse tasks.")
@@ -90,35 +112,15 @@ class BaseLoraTabView:
                                   tooltip="Applies a scaling factor to the learned weights. This ensures that the effective learning rate remains consistent across different block sizes. Without this, different block sizes require significantly different learning rates.")
             self.components.switch(master, 2, 4, ui_state, "oft_scaled")
 
-            # Clip OFT max norm
-            self.components.label(master, 5, 0, "Spectral Norm Clipping",
-                             tooltip="Strictly clips the spectral norm of the OFT matrix to guarantee convergence of the Cayley parametrization (requires norm <= 1.0). Smaller values constrain the learned rotation to stay near the identity matrix, limiting adaptation. Default: 1.0 (e.g. 0.8 = 80% of maximum expressiveness). Leave empty to disable.")
-            self.components.entry(master, 5, 1, ui_state, "oft_clipped_norm")
-
             # Matrix Exponential Mode
             self.components.label(master, 3, 3, "Matrix Exponential Mode",
                                   tooltip="Changes OFT parameterization from Cayley transform to Matrix Exponential. Provides a uniform effective learning rates across all rotation angles, avoiding Cayley metric distortion. While Maintaining the same overhead.")
             self.components.switch(master, 3, 4, ui_state, "oft_matrix_exp")
 
-            # Dropout Percentage
-            self.components.label(master, 2, 0, "Dropout Probability",
-                                  tooltip="Dropout probability. This percentage of the rotated adapter nodes that will be randomly restored to the base model initial statue. Helps with overfitting. 0 disables, 1 maximum.")
-            self.components.entry(master, 2, 1, ui_state, "dropout_probability")
-
-            # OFT weight dtype
-            self.components.label(master, 3, 0, f"{name} Weight Data Type",
-                                  tooltip=f"The {name} weight data type used for training. This can reduce memory consumption, but reduces precision")
-            self.components.options_kv(master, 3, 1, controller.get_lora_weight_dtypes(), ui_state, "lora_weight_dtype")
-
             # DoRA-OFT (DOFT)
-            self.components.label(master, 3, 3, "DoRA OFT (DOFT)",
-                             tooltip="Combines Weight-Decomposed Low-Rank Adaptation (DoRA) with OFT. By decoupling the weight into magnitude and direction components, it achieves the superior training dynamics of DoRA but with the stability and performance of OFT. Because OFT is norm-preserving, it avoids the heavy re-calculations typically found in standard DoRA, resulting in faster training (same speed as standard OFT) and better convergence.")
-            self.components.switch(master, 3, 4, ui_state, "dora_oft")
-
-            # For use with additional embeddings.
-            self.components.label(master, 4, 0, "Bundle Embeddings",
-                                  tooltip=f"Bundles any additional embeddings into the {name} output file, rather than as separate files")
-            self.components.switch(master, 4, 1, ui_state, "bundle_additional_embeddings")
+            self.components.label(master, 4, 3, "DoRA OFT (DOFT)",
+                                  tooltip="Combines Weight-Decomposed Low-Rank Adaptation (DoRA) with OFT. By decoupling the weight into magnitude and direction components, it achieves the superior training dynamics of DoRA but with the stability and performance of OFT. Because OFT is norm-preserving, it avoids the heavy re-calculations typically found in standard DoRA, resulting in faster training (same speed as standard OFT) and better convergence.")
+            self.components.switch(master, 4, 4, ui_state, "dora_oft")
 
         # LoKr
         elif peft_type == PeftType.LOKR:

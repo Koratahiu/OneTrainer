@@ -107,6 +107,7 @@ class BaseIdeogramSetup(
                 batch_size,
                 config,
                 shift=shift if config.dynamic_timestep_shifting else config.timestep_shift,
+                sigmas=model.noise_scheduler.sigmas,
             )
 
             scaled_noisy_latent_image, sigma = self._add_noise_discrete(

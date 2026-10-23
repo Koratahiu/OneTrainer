@@ -69,23 +69,24 @@ dependencies = [
     "psutil==7.2.2",
     "requests==2.34.2",
     "deepdiff==8.6.2", # output easy to read diff for troublshooting
+    "flash-attn @ file:///D:/OT/flash_attn-2.8.3+cu130torch2.14-cp313-cp313-win_amd64.whl",
 ]
 
 [project.optional-dependencies]
 cpu = [
-  "torch==2.12.0",
-  "torchvision==0.27.0",
+  "torch==2.14.1",
+  "torchvision==0.29.1",
   "onnxruntime==1.23.2",
 ]
 
 cuda = [
-  "torch==2.12.0",
-  "torchvision==0.27.0",
+  "torch==2.14.1",
+  "torchvision==0.29.1",
   "onnxruntime-gpu==1.23.2",
-  "triton-windows==3.7.0.post26; sys_platform == 'win32'",
+  "triton-windows==3.8.0.post29; sys_platform == 'win32'",
 
   # optimizers
-  "bitsandbytes==0.49.2",
+  "bitsandbytes==0.50.2",
 ]
 
 # CUDA 12 has the same dependencies as CUDA 13.
@@ -99,14 +100,14 @@ cuda12 = [
 
 cuda13 = [
     "onetrainer[cuda]",
-    "nvidia-nccl-cu13==2.29.7; sys_platform == 'linux'",
+    "nvidia-nccl-cu13==2.30.7; sys_platform == 'linux'",
     "nvidia-nvcomp-cu13==5.3.0.16",
 ]
 
 rocm = [
   # pytorch
-  "torch==2.12.0",
-  "torchvision==0.27.0",
+  "torch==2.14.1",
+  "torchvision==0.29.1",
   "onnxruntime==1.23.2",
 
   # optimizers

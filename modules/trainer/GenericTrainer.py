@@ -789,35 +789,49 @@ class GenericTrainer(BaseTrainer):
                     step_seed = train_progress.global_step
                     bf16_stochastic_rounding_set_seed(step_seed, train_device)
 
-                    prior_pred_indices = [i for i in range(self.config.batch_size)
-                                          if ConceptType(batch['concept_type'][i]) == ConceptType.PRIOR_PREDICTION]
-                    if len(prior_pred_indices) > 0 \
-                            or (self.config.masked_training
-                                and self.config.masked_prior_preservation_weight > 0
-                                and self.config.training_method == TrainingMethod.LORA):
-                        with self.model_setup.prior_model(self.model, self.config), torch.no_grad():
-                            #do NOT create a subbatch using the indices, even though it would be more efficient:
-                            #different timesteps are used for a smaller subbatch by predict(), but the conditioning must match exactly:
-                            prior_model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
-                        model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
-                        prior_model_prediction = prior_model_output_data['predicted'].to(dtype=model_output_data['target'].dtype)
-                        model_output_data['target'][prior_pred_indices] = prior_model_prediction[prior_pred_indices]
-                        model_output_data['prior_target'] = prior_model_prediction
-                    else:
-                        model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
+                    # Skip the forward pass entirely when in embedding-only training
+                    # and no caption contains any trigger word (no append tokens will
+                    # enter the graph, so no trainable parameter participates).
+                    skip_forward = False
+                    if self.config.training_method == TrainingMethod.EMBEDDING:
+                        prompts = batch.get('prompt') or []
+                        placeholders = [emb.placeholder for emb in self.model.all_embeddings()]
+                        skip_forward = not any(
+                            ph in caption
+                            for caption in prompts
+                            for ph in placeholders
+                        )
 
-                    loss = self.model_setup.calculate_loss(self.model, batch, model_output_data, self.config)
+                    if not skip_forward:
+                        prior_pred_indices = [i for i in range(self.config.batch_size)
+                                              if ConceptType(batch['concept_type'][i]) == ConceptType.PRIOR_PREDICTION]
+                        if len(prior_pred_indices) > 0 \
+                                or (self.config.masked_training
+                                    and self.config.masked_prior_preservation_weight > 0
+                                    and self.config.training_method == TrainingMethod.LORA):
+                            with self.model_setup.prior_model(self.model, self.config), torch.no_grad():
+                                #do NOT create a subbatch using the indices, even though it would be more efficient:
+                                #different timesteps are used for a smaller subbatch by predict(), but the conditioning must match exactly:
+                                prior_model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
+                            model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
+                            prior_model_prediction = prior_model_output_data['predicted'].to(dtype=model_output_data['target'].dtype)
+                            model_output_data['target'][prior_pred_indices] = prior_model_prediction[prior_pred_indices]
+                            model_output_data['prior_target'] = prior_model_prediction
+                        else:
+                            model_output_data = self.model_setup.predict(self.model, batch, self.config, train_progress)
 
-                    loss = loss / self.config.gradient_accumulation_steps
-                    if scaler:
-                        scaler.scale(loss).backward()
-                    else:
-                        loss.backward()
+                        loss = self.model_setup.calculate_loss(self.model, batch, model_output_data, self.config)
 
-                    has_gradient = True
-                    detached_loss = loss.detach()
-                    multi.reduce_tensor_mean(detached_loss)
-                    accum_loss += detached_loss
+                        loss = loss / self.config.gradient_accumulation_steps
+                        if scaler:
+                            scaler.scale(loss).backward()
+                        else:
+                            loss.backward()
+
+                            has_gradient = True
+                        detached_loss = loss.detach()
+                        multi.reduce_tensor_mean(detached_loss)
+                        accum_loss += detached_loss
 
                     if self.__is_update_step(train_progress):
                         if self.config.fused_gradient_reduce:
@@ -852,7 +866,7 @@ class GenericTrainer(BaseTrainer):
                             # Runs one update behind to avoid synchronizing the current step.
                             report_loss(accum_loss_cpu, accum_loss_step, step_tqdm)
 
-                        accum_loss = 0.0
+                        accum_loss = torch.tensor(0.0, device=train_device)
                         self.model_setup.after_optimizer_step(self.model, self.config, train_progress)
 
                         if self.model.ema:

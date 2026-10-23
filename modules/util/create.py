@@ -630,6 +630,22 @@ def create_optimizer(
                 geometric_wd=optimizer_config.geometric_wd if optimizer_config.geometric_wd is not None else False,
             )
 
+        # GEOEMBED_ADV Optimizer
+        case Optimizer.GEOEMBED_ADV:
+            from adv_optm import GeoEmbed_adv
+            optimizer = GeoEmbed_adv(
+                params=parameters,
+                lr=config.learning_rate,
+                radial_lr=optimizer_config.radial_lr,
+                momentum=optimizer_config.momentum if optimizer_config.momentum is not None else 0.95,
+                nesterov=optimizer_config.nesterov if optimizer_config.nesterov is not None else True,
+                nesterov_coef=optimizer_config.nesterov_coef if optimizer_config.nesterov_coef is not None else None,
+                weight_decay=optimizer_config.weight_decay if optimizer_config.weight_decay is not None else 0.0,
+                centered_weight_decay=optimizer_config.centered_weight_decay if optimizer_config.centered_weight_decay is not None else 0.0,
+                eps=optimizer_config.eps if optimizer_config.eps is not None else 1e-8,
+                ema_beta=optimizer_config.ema_beta,
+            )
+
         # LION_ADV Optimizer
         case Optimizer.LION_ADV:
             from adv_optm import Lion_adv
@@ -931,7 +947,16 @@ def create_ema(
         parameters: Iterable[Parameter] | list[dict],
         state_dict: dict | None,
         config: TrainConfig,
+        optimizer: torch.optim.Optimizer | None = None,
 ) -> EMAModuleWrapper | None:
+    # GeoEmbed_adv maintains its own per-token geodesic EMA (ema_beta). When it's
+    # enabled, that buffer *is* the EMA model, so it replaces the separate
+    # EMAModuleWrapper entirely.
+    if optimizer is not None and config.ema != EMAMode.OFF:
+        from modules.util.optimizer.geoembed_ema import GeoEMAModuleWrapper, is_geoembed_ema_active
+        if is_geoembed_ema_active(optimizer):
+            return GeoEMAModuleWrapper(optimizer, parameters)
+
     if config.ema == EMAMode.GPU:
         device = torch.device(config.train_device)
     elif config.ema == EMAMode.CPU:

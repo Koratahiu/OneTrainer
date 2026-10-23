@@ -145,6 +145,9 @@ class TrainOptimizerConfig(BaseConfig):
     normed_momentum: bool
     nesterov_coef: float
     geometric_wd: bool
+    radial_lr: float
+    centered_weight_decay: float
+    ema_beta: float
 
     def __init__(self, data: list[(str, Any, type, bool)]):
         super().__init__(
@@ -301,6 +304,9 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("normed_momentum", False, bool, False))
         data.append(("nesterov_coef", None, float, True))
         data.append(("geometric_wd", False, bool, False))
+        data.append(("radial_lr", None, float, True))
+        data.append(("centered_weight_decay", 0.0, float, False))
+        data.append(("ema_beta", None, float, True))
 
         return TrainOptimizerConfig(data)
 

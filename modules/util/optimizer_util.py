@@ -69,7 +69,9 @@ def init_model_parameters(
     model.optimizer_state_dict = None
 
     if multi.is_master():
-        model.ema = create.create_ema(parameters.parameters(), model.ema_state_dict, model.train_config)
+        model.ema = create.create_ema(
+            parameters.parameters(), model.ema_state_dict, model.train_config, optimizer=model.optimizer
+        )
     else:
         model.ema = None
     model.ema_state_dict = None
@@ -440,6 +442,16 @@ OPTIMIZER_DEFAULT_PARAMETERS = {
         "centered_wd": 0.0,
         "centered_wd_mode": "full",
         "state_precision": "auto",
+    },
+    Optimizer.GEOEMBED_ADV: {
+        "radial_lr": None,
+        "momentum": 0.95,
+        "nesterov": True,
+        "nesterov_coef": None,
+        "weight_decay": 0.0,
+        "centered_weight_decay": 0.0,
+        "eps": 1e-8,
+        "ema_beta": None,
     },
     Optimizer.LION_ADV: {
         "stochastic_sign": False,

@@ -35,6 +35,7 @@ class Optimizer(Enum):
     SGD_8BIT = 'SGD_8BIT'
     SINKSGD_ADV = 'SINKSGD_ADV'
     SIGNSGD_ADV = 'SIGNSGD_ADV'
+    GEOEMBED_ADV = 'GEOEMBED_ADV'
 
     # Schedule-free optimizers
     SCHEDULE_FREE_ADAMW = 'SCHEDULE_FREE_ADAMW'
@@ -86,6 +87,7 @@ class Optimizer(Enum):
             self.PRODIGY_ADV,
             self.MUON_ADV,
             self.ADAMUON_ADV,
+            self.GEOEMBED_ADV,
         ]
 
     def supports_fused_back_pass(self):

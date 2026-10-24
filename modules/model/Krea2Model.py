@@ -2,7 +2,7 @@ import math
 from contextlib import nullcontext
 from random import Random
 
-from modules.model.BaseModel import BaseModel
+from modules.model.BaseModel import BaseModel, BaseModelEmbedding
 from modules.module.LoRAModule import LoRAModuleWrapper
 from modules.util.enum.ModelType import ModelType
 
@@ -39,6 +39,21 @@ PROMPT_TEMPLATE_NUM_SUFFIX_TOKENS = 5
 PROMPT_MAX_LENGTH = 512
 
 
+class Krea2ModelEmbedding(BaseModelEmbedding):
+    def __init__(
+            self,
+            uuid: str,
+            placeholder: str,
+            token_count: int,
+    ):
+        # appended embedding: the learned vector is appended to the text encoder
+        # output (not written into token positions like an output embedding), so it is
+        # not an output embedding.
+        super().__init__(uuid, placeholder, vector=None, is_output_embedding=False)
+        self.token_count = token_count
+        self.append_token: Tensor | None = None
+
+
 class Krea2Model(BaseModel):
     # base model data
     tokenizer: Qwen2Tokenizer | None
@@ -54,6 +69,10 @@ class Krea2Model(BaseModel):
     # persistent lora training data
     transformer_lora: LoRAModuleWrapper | None
     lora_state_dict: dict | None
+
+    embedding: Krea2ModelEmbedding | None
+    additional_embeddings: list[Krea2ModelEmbedding] | None
+    append_tokens: dict[str, Tensor] | None
 
     def __init__(
             self,
@@ -74,6 +93,10 @@ class Krea2Model(BaseModel):
 
         self.transformer_lora = None
         self.lora_state_dict = None
+
+        self.embedding = None
+        self.additional_embeddings = []
+        self.append_tokens = {}
 
     def diffusers_to_original(self) -> list | None:
         # Krea 2's native checkpoint (krea/Krea-2-Raw's raw.safetensors) is a pure rename of the diffusers
@@ -136,6 +159,8 @@ class Krea2Model(BaseModel):
             tokens_mask: Tensor = None,
             text_encoder_dropout_probability: float | None = None,
             text_encoder_output: Tensor = None,
+            apply_append_tokens: bool = True,
+            caption_texts: list[str] | None = None,
     ) -> tuple[Tensor, Tensor]:
         if tokens is None and text is not None:
             if isinstance(text, str):
@@ -190,6 +215,30 @@ class Krea2Model(BaseModel):
         # batch's real-token max length.
         seq_lengths = tokens_mask.sum(dim=1)
         pruned_hidden_states = [text_encoder_output[i][tokens_mask[i].bool()] for i in range(text_encoder_output.shape[0])]
+
+        if apply_append_tokens and self.append_tokens:
+            active_embeddings = [
+                emb for emb in self.all_embeddings()
+                if emb.uuid in self.append_tokens
+            ]
+            if active_embeddings:
+                # per-sample trigger gating lives on the embedding module itself
+                # (BaseModelEmbedding.append_embed_token): an embedding's append
+                # tokens are appended only when that sample's caption contains its
+                # trigger word (placeholder). caption_texts=None appends everywhere.
+                captions = caption_texts if caption_texts is not None else [None] * len(pruned_hidden_states)
+                new_states = []
+                new_lengths = []
+                for i, h in enumerate(pruned_hidden_states):
+                    caption = captions[i] if i < len(captions) else None
+                    for emb in active_embeddings:
+                        append = emb.append_embed_token(caption, train_device, text_encoder_output.dtype)
+                        if append is not None:
+                            h = torch.cat([h, append], dim=0)
+                    new_states.append(h)
+                    new_lengths.append(h.shape[0])
+                pruned_hidden_states = new_states
+                seq_lengths = torch.tensor(new_lengths, device=train_device, dtype=seq_lengths.dtype)
 
         text_encoder_output = torch.nn.utils.rnn.pad_sequence(pruned_hidden_states, batch_first=True)
         max_seq_length = text_encoder_output.shape[1]
@@ -251,6 +300,10 @@ class Krea2Model(BaseModel):
         latents_mean = torch.tensor(self.vae.config.latents_mean, device=latents.device, dtype=latents.dtype).view(1, self.vae.config.z_dim, 1, 1, 1)
         latents_std = 1.0 / torch.tensor(self.vae.config.latents_std, device=latents.device, dtype=latents.dtype).view(1, self.vae.config.z_dim, 1, 1, 1)
         return latents / latents_std + latents_mean
+
+    def all_embeddings(self) -> list[Krea2ModelEmbedding]:
+        return self.additional_embeddings \
+               + ([self.embedding] if self.embedding is not None else [])
 
     def calculate_timestep_shift(self, latent_width: int, latent_height: int): #TODO identical in several models, share this code
         base_seq_len = self.noise_scheduler.config.base_image_seq_len

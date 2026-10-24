@@ -2,7 +2,7 @@ from abc import ABCMeta
 from random import Random
 
 import modules.util.multi_gpu_util as multi
-from modules.model.Krea2Model import Krea2Model
+from modules.model.Krea2Model import Krea2Model, Krea2ModelEmbedding, TEXT_ENCODER_SELECT_LAYERS
 from modules.modelSetup.BaseModelSetup import BaseModelSetup
 from modules.modelSetup.mixin.ModelSetupDebugMixin import ModelSetupDebugMixin
 from modules.modelSetup.mixin.ModelSetupDiffusionLossMixin import ModelSetupDiffusionLossMixin
@@ -73,6 +73,7 @@ class BaseKrea2Setup(
                 tokens_mask=batch.get("tokens_mask"),
                 text_encoder_output=batch.get('text_encoder_hidden_state'),
                 text_encoder_dropout_probability=config.text_encoder.dropout_probability if not deterministic else None,
+                caption_texts=batch.get('prompt'),
             )
 
             if config.cep_gamma > 0 and not deterministic:
@@ -171,6 +172,74 @@ class BaseKrea2Setup(
             train_device=self.train_device,
             sigmas=model.noise_scheduler.sigmas,
         ).mean()
+
+    def _setup_embeddings(
+            self,
+            model: Krea2Model,
+            config: TrainConfig,
+    ):
+        hidden_dim = model.transformer.config.text_hidden_dim if model.transformer is not None else 2560
+        # encode_text works on the flattened (B, T, L*H) text output, so the append
+        # token is stored flat as (token_count, num_layers * hidden_dim)
+        append_dim = len(TEXT_ENCODER_SELECT_LAYERS) * hidden_dim
+        train_dtype = model.train_dtype.torch_dtype()
+
+        additional_embeddings = []
+        for embedding_config in config.all_embedding_configs():
+            embedding_state = model.embedding_state_dicts.get(embedding_config.uuid, None)
+            token_count = embedding_config.token_count or 1
+
+            if embedding_state is None:
+                append_token = torch.randn(
+                    token_count, append_dim,
+                    dtype=train_dtype,
+                    device=self.train_device,
+                    requires_grad=True,
+                )
+            else:
+                embedding_state = embedding_state.get("krea2", None)
+
+                if embedding_state is not None:
+                    append_token = embedding_state.to(
+                        dtype=train_dtype,
+                        device=self.train_device,
+                    ).detach().requires_grad_(True)
+                else:
+                    append_token = torch.randn(
+                        token_count, append_dim,
+                        dtype=train_dtype,
+                        device=self.train_device,
+                        requires_grad=True,
+                    )
+
+            embedding = Krea2ModelEmbedding(
+                embedding_config.uuid,
+                embedding_config.placeholder,
+                token_count,
+            )
+            embedding.append_token = append_token
+            embedding.vector = append_token  # alias so BaseModelEmbedding.append_embed_token can gate on the trigger word
+            model.append_tokens[embedding_config.uuid] = append_token
+
+            if embedding_config.uuid == config.embedding.uuid:
+                model.embedding = embedding
+            else:
+                additional_embeddings.append(embedding)
+
+        model.additional_embeddings = additional_embeddings
+
+    def _setup_embeddings_requires_grad(
+            self,
+            model: Krea2Model,
+            config: TrainConfig,
+    ):
+        for embedding, embedding_config in zip(model.all_embeddings(),
+                                               config.all_embedding_configs(), strict=True):
+            train_embedding = \
+                embedding_config.train \
+                and config.text_encoder.train_embedding \
+                and not self.stop_embedding_training_elapsed(embedding_config, model.train_progress)
+            model.append_tokens[embedding.uuid].requires_grad_(train_embedding)
 
     def prepare_text_caching(self, model: Krea2Model, config: TrainConfig):
         if not config.train_text_encoder_or_embedding():

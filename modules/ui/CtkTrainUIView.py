@@ -331,7 +331,8 @@ class CtkTrainUIView(BaseTrainUIView, ctk.CTk):
         return frame
 
     def _should_show_output_embedding_toggle(self) -> bool:
-        return not self.controller.train_config.model_type.is_moss()
+        model_type = self.controller.train_config.model_type
+        return not (model_type.is_moss() or model_type.is_krea2())
 
     def embedding_tab(self, master):
         frame = ctk.CTkScrollableFrame(master, fg_color="transparent")

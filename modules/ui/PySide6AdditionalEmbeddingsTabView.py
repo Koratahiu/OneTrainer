@@ -27,7 +27,8 @@ class PySide6AdditionalEmbeddingsTabView(PySide6ConfigListView, BaseAdditionalEm
 class PySide6EmbeddingWidgetView(BaseEmbeddingWidgetView, QWidget):
 
     def _should_show_output_embedding_toggle(self, controller) -> bool:
-        return not controller.train_config.model_type.is_moss()
+        model_type = controller.train_config.model_type
+        return not (model_type.is_moss() or model_type.is_krea2())
 
     def __init__(self, master, element, i, open_command, remove_command, clone_command, save_command, controller):
         QWidget.__init__(self, master)

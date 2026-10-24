@@ -265,7 +265,8 @@ class PySide6TrainView(BaseTrainUIView, QMainWindow, metaclass=QtABCMeta):
         pyside6_components._pack_form(frame)
 
     def _should_show_output_embedding_toggle(self) -> bool:
-        return not self.controller.train_config.model_type.is_moss()
+        model_type = self.controller.train_config.model_type
+        return not (model_type.is_moss() or model_type.is_krea2())
 
     def _configure_embedding_frame(self, frame):
         self.build_embedding_tab_content(frame, self.controller, self.ui_state)

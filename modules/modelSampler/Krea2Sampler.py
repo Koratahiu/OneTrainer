@@ -68,10 +68,12 @@ class Krea2Sampler(BaseModelSampler):
             self.model.materialize_only("text_encoder")
 
             batch_size = 2 if cfg_scale > 1.0 else 1
+            texts = [prompt, negative_prompt] if cfg_scale > 1.0 else [prompt]
             combined_prompt_embedding, text_attention_mask = self.model.encode_text(
-                text=[prompt, negative_prompt] if cfg_scale > 1.0 else prompt,
+                text=texts,
                 batch_size=batch_size,
                 train_device=self.train_device,
+                caption_texts=texts,
             )
 
             # prepare latent image

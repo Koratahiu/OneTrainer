@@ -210,10 +210,11 @@ class ModelType(Enum):
                 or self.is_hunyuan_video() \
                 or self.is_hi_dream() \
                 or self.is_chroma() \
-                or self.is_moss():
+                or self.is_moss() \
+            or self.is_krea2():
             return (TrainingMethod.FINE_TUNE, TrainingMethod.LORA, TrainingMethod.EMBEDDING)
         if self.is_qwen() or self.is_z_image() or self.is_flux_2() or self.is_ernie() \
-                or self.is_anima() or self.is_krea2() or self.is_ideogram():
+                or self.is_anima() or self.is_ideogram():
             return (TrainingMethod.FINE_TUNE, TrainingMethod.LORA)
         raise ValueError(f"No supported training methods defined for model type {self}")
 

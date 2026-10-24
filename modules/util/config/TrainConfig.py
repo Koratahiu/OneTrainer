@@ -650,6 +650,7 @@ class TrainConfig(BaseConfig):
     sample_audio_format: AudioFormat
     samples_to_tensorboard: bool
     non_ema_sampling: bool
+    sample_cache_text_encodings: bool
 
     # cloud settings
     cloud: CloudConfig
@@ -1384,6 +1385,7 @@ class TrainConfig(BaseConfig):
         data.append(("sample_audio_format", AudioFormat.MP3, AudioFormat, False))
         data.append(("samples_to_tensorboard", True, bool, False))
         data.append(("non_ema_sampling", True, bool, False))
+        data.append(("sample_cache_text_encodings", False, bool, False))
 
         # backup settings
         data.append(("backup_after", 30, int, False))

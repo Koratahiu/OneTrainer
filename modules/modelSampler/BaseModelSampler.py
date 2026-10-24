@@ -73,6 +73,11 @@ class BaseModelSampler(metaclass=ABCMeta):
     ):
         pass
 
+    def prepare_text_encoding(self, sample_config: SampleConfig) -> None:
+        # Precompute and cache the text encodings for this sample config, so sampling it later does not
+        # need to materialize the text encoder(s). No-op by default; samplers with text encoders override.
+        pass  # noqa: B027
+
     @staticmethod
     def quantize_resolution(resolution: int, quantization: int) -> int:
         return round(resolution / quantization) * quantization

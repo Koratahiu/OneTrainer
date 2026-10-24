@@ -133,6 +133,7 @@ class BaseModel(metaclass=ABCMeta):
         self.model_spec = None
         self.train_config = None
         self.embedding_state_dicts = {}
+        self.text_encoding_cache = {}
         self.autocast_context = nullcontext()
         self.train_dtype = DataType.FLOAT_32
 
@@ -180,6 +181,20 @@ class BaseModel(metaclass=ABCMeta):
         # Materialize all of this model's text encoders on train_device, evicting everything else. Samplers
         # call this before encode_text, which reads every text encoder the model has.
         self.materialize_only(*self.model_type.text_encoder_parts())
+
+    def encode_text_cached(self, parts: str | tuple[str, ...], **kwargs):
+        # materialize_only + encode_text with a result cache: a repeat of the exact same call returns the
+        # stored encoding without materializing the text encoders, so sampling can reuse encodings of
+        # previously sampled prompts. `parts` is the part (or parts) the encoding depends on.
+        parts = (parts,) if isinstance(parts, str) else tuple(parts)
+        key = (parts, tuple(sorted((k, repr(v)) for k, v in kwargs.items())))
+        cached = self.text_encoding_cache.get(key)
+        if cached is not None:
+            return cached
+        self.materialize_only(*parts)
+        encoding = self.encode_text(**kwargs)
+        self.text_encoding_cache[key] = encoding
+        return encoding
 
     def _move_part(self, part: str, device: torch.device) -> bool:
         # Move a component (`part`, or `part_1` for the first of several split text encoders) and its LoRA. The

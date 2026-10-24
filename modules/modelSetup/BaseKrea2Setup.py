@@ -13,7 +13,7 @@ from modules.util.checkpointing_util import (
     enable_checkpointing_for_krea2_transformer,
     enable_checkpointing_for_qwen3vl_encoder_layers,
 )
-from modules.util.config.TrainConfig import TrainConfig
+from modules.util.config.TrainConfig import TrainConfig, TrainEmbeddingConfig
 from modules.util.TrainProgress import TrainProgress
 
 import torch
@@ -173,6 +173,49 @@ class BaseKrea2Setup(
             sigmas=model.noise_scheduler.sigmas,
         ).mean()
 
+    def _create_new_append_token(
+            self,
+            model: Krea2Model,
+            embedding_config: TrainEmbeddingConfig,
+            append_dim: int,
+            train_dtype: torch.dtype,
+    ) -> Tensor:
+        # initialize from the text-encoder output for the initial embedding text (the append
+        # tokens live in encoder-output space). Falls back to random when the encoder can
+        # not run forward (e.g. weights on a meta device).
+        try:
+            with torch.no_grad():
+                encoded, _ = model.encode_text(
+                    text=embedding_config.initial_embedding_text,
+                    train_device=self.train_device,
+                    apply_append_tokens=False,
+                )
+                # flatten (T, L, H) -> (T, L*H) to match the flat append token layout
+                vector = encoded[0].detach().flatten(1)
+        except Exception:
+            return torch.randn(
+                embedding_config.token_count or 1, append_dim,
+                dtype=train_dtype,
+                device=self.train_device,
+                requires_grad=True,
+            )
+
+        token_count = embedding_config.token_count if embedding_config.token_count is not None else vector.shape[0]
+        if vector.shape[0] < token_count:
+            # pad with the encoding of '*' up to the requested token count
+            with torch.no_grad():
+                pad_encoded, _ = model.encode_text(
+                    text="*",
+                    train_device=self.train_device,
+                    apply_append_tokens=False,
+                )
+            pad_vector = pad_encoded[0].detach().flatten(1)
+            vector = torch.cat([vector, pad_vector.expand(token_count - vector.shape[0], -1)], dim=0)
+        else:
+            vector = vector[:token_count]
+
+        return vector.to(device=self.train_device, dtype=train_dtype).requires_grad_(True)
+
     def _setup_embeddings(
             self,
             model: Krea2Model,
@@ -190,12 +233,7 @@ class BaseKrea2Setup(
             token_count = embedding_config.token_count or 1
 
             if embedding_state is None:
-                append_token = torch.randn(
-                    token_count, append_dim,
-                    dtype=train_dtype,
-                    device=self.train_device,
-                    requires_grad=True,
-                )
+                append_token = self._create_new_append_token(model, embedding_config, append_dim, train_dtype)
             else:
                 embedding_state = embedding_state.get("krea2", None)
 
@@ -205,12 +243,7 @@ class BaseKrea2Setup(
                         device=self.train_device,
                     ).detach().requires_grad_(True)
                 else:
-                    append_token = torch.randn(
-                        token_count, append_dim,
-                        dtype=train_dtype,
-                        device=self.train_device,
-                        requires_grad=True,
-                    )
+                    append_token = self._create_new_append_token(model, embedding_config, append_dim, train_dtype)
 
             embedding = Krea2ModelEmbedding(
                 embedding_config.uuid,

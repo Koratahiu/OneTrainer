@@ -50,7 +50,7 @@ OneTrainer is a one-stop solution for all your Diffusion training needs.
 1. Install `pixi`: [Guide](https://pixi.prefix.dev/latest/installation/)
 2. Clone the repository `git clone https://github.com/Nerogar/OneTrainer.git`
 3. Navigate into the cloned directory `cd OneTrainer`
-4. Perform the installation: `pixi install --locked -e cuda` (Replace `cuda` by `rocm` or `cpu` if needed).
+4. Perform the installation: `pixi install --frozen -e cuda` (Replace `cuda` by `rocm` or `cpu` if needed).
 
 **Note:** We don't support ROCm on Windows currently.
 
@@ -64,7 +64,7 @@ OneTrainer is a one-stop solution for all your Diffusion training needs.
 
 1. Cd to folder containing the repo `cd OneTrainer`
 2. Pull changes `git pull`
-3. Recreate the environment `pixi install --locked -e cuda`
+3. Recreate the environment `pixi install --frozen -e cuda`
 
 ## Usage
 

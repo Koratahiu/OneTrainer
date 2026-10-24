@@ -171,11 +171,11 @@ function get_platform {
 
 function install_env {
     print_debug "Installing OneTrainer environment, this may take a while..."
-    run_cmd pixi install --locked -e "${OT_PLATFORM}"
+    run_cmd pixi install --frozen -e "${OT_PLATFORM}"
 }
 
 function run_in_env {
-    run_cmd pixi run --locked -e "${OT_PLATFORM}" "$@"
+    run_cmd pixi run --frozen -e "${OT_PLATFORM}" "$@"
 }
 
 function get_or_update_pixi {

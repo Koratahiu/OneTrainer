@@ -42,14 +42,14 @@ setup_ssh() {
 setup_auth() {
     # Login to HF
     if [[ -n "${HF_TOKEN:-$HUGGING_FACE_HUB_TOKEN}" ]]; then
-      pixi run --locked -e ${OT_PLATFORM} hf auth login --token "${HF_TOKEN:-$HUGGING_FACE_HUB_TOKEN}" --add-to-git-credential 2>&1
+      pixi run --frozen -e ${OT_PLATFORM} hf auth login --token "${HF_TOKEN:-$HUGGING_FACE_HUB_TOKEN}" --add-to-git-credential 2>&1
     else
       echo "HF_TOKEN or HUGGING_FACE_HUB_TOKEN not set; skipping login"
     fi
 
     # Login to WanDB
     if [[ -n "${WANDB_API_KEY:-$WANDB_TOKEN}" ]]; then
-      pixi run --locked -e ${OT_PLATFORM} wandb login "${WANDB_API_KEY:-$WANDB_TOKEN}" 2>&1
+      pixi run --frozen -e ${OT_PLATFORM} wandb login "${WANDB_API_KEY:-$WANDB_TOKEN}" 2>&1
     else
       echo "WANDB_API_KEY or WANDB_TOKEN not set; skipping login"
     fi

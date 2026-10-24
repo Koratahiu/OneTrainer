@@ -32,7 +32,7 @@ ENV OT_SCRIPT_DEBUG="true"
 ARG OT_PLATFORM
 
 RUN --mount=type=cache,target=/root/.cache/rattler/cache <<EOF
-pixi install --locked -v -e ${OT_PLATFORM} --skip OneTrainer
+pixi install --frozen -v -e ${OT_PLATFORM} --skip OneTrainer
 EOF
 
 FROM base AS final

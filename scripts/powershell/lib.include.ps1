@@ -137,11 +137,11 @@ function Get-OrUpdatePixi {
 }
 
 function Install-Env {
-    Invoke-Run pixi install --locked -e $script:OT_PLATFORM
+    Invoke-Run pixi install --frozen -e $script:OT_PLATFORM
 }
 
 function Invoke-InEnv {
-    Invoke-Run pixi run --locked -e $script:OT_PLATFORM @args
+    Invoke-Run pixi run --frozen -e $script:OT_PLATFORM @args
 }
 
 #endregion

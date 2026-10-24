@@ -180,25 +180,16 @@ class BaseKrea2Setup(
             append_dim: int,
             train_dtype: torch.dtype,
     ) -> Tensor:
-        # initialize from the text-encoder output for the initial embedding text (the append
-        # tokens live in encoder-output space). Falls back to random when the encoder can
-        # not run forward (e.g. weights on a meta device).
-        try:
-            with torch.no_grad():
-                encoded, _ = model.encode_text(
-                    text=embedding_config.initial_embedding_text,
-                    train_device=self.train_device,
-                    apply_append_tokens=False,
-                )
-                # flatten (T, L, H) -> (T, L*H) to match the flat append token layout
-                vector = encoded[0].detach().flatten(1)
-        except Exception:
-            return torch.randn(
-                embedding_config.token_count or 1, append_dim,
-                dtype=train_dtype,
-                device=self.train_device,
-                requires_grad=True,
+        model.materialize_only("text_encoder")
+
+        with torch.no_grad():
+            encoded, _ = model.encode_text(
+                text=embedding_config.initial_embedding_text,
+                train_device=self.train_device,
+                apply_append_tokens=False,
             )
+            # flatten (T, L, H) -> (T, L*H) to match the flat append token layout
+            vector = encoded[0].detach().flatten(1)
 
         token_count = embedding_config.token_count if embedding_config.token_count is not None else vector.shape[0]
         if vector.shape[0] < token_count:
@@ -214,7 +205,11 @@ class BaseKrea2Setup(
         else:
             vector = vector[:token_count]
 
-        return vector.to(device=self.train_device, dtype=train_dtype).requires_grad_(True)
+        result = vector.to(device=self.train_device, dtype=train_dtype).requires_grad_(True)
+
+        model.evict("text_encoder")
+
+        return result
 
     def _setup_embeddings(
             self,

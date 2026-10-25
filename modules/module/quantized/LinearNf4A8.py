@@ -23,7 +23,9 @@ class LinearNf4A8(LinearNf4):
         x = x_orig.reshape(-1, x_orig.shape[-1])
         x = x.to(dtype=self.compute_dtype)
 
-        w = self.unquantized_weight(self.compute_dtype, self.weight.device)
+        # _stored_weight, not the virtual unquantized_weight: wrappers (SVD) transform the
+        # stored weight, and their forward already fed us the matching transformed input
+        w = self._stored_weight(self.compute_dtype, self.weight.device)
         #the 8-bit path only pays for itself above a few tokens, and an unquantized layer has
         #no packed NF4 weight to dequantize - the dense weight is used as-is
         if x.shape[0] > 16 and self.is_quantized:

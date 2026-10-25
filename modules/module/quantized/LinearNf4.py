@@ -54,7 +54,11 @@ class LinearNf4(
         bias_bytes = self.bias.numel() * self.bias.element_size() if self.bias is not None else 0
         return weight_bytes + absmax_bytes + bias_bytes
 
-    def unquantized_weight(self,  dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+    def _stored_weight(self, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+        # dequantizes the packed NF4 weight exactly as stored, with no wrapper adjustments. Wrappers that
+        # transform the stored weight (SVD low-rank add-back) keep their logic in
+        # unquantized_weight(); consumers that must see the exact stored matrix (LinearNf4A8's forward, whose
+        # input is already rotated by the wrapper) call this directly.
         if self.is_quantized:
             device_weight = self.weight.to(device=device)
             device_absmax = self._absmax.to(device=device)
@@ -75,6 +79,9 @@ class LinearNf4(
             ).detach().to(dtype=dtype)
         else:
             return self.weight.detach().to(dtype=dtype)
+
+    def unquantized_weight(self,  dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+        return self._stored_weight(dtype, device)
 
     def quantize(self, device: torch.device | None = None):
         if self.is_quantized:

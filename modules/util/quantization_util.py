@@ -223,6 +223,16 @@ def __quantized_linear_class_and_kwargs(dtype: DataType):
         if LinearNf4 is None:
             raise ImportError("bitsandbytes is required for NF4 quantization")
         return LinearNf4, {}
+    elif dtype.quantize_nf4_a8_int():
+        if LinearNf4 is None:
+            raise ImportError("bitsandbytes is required for NF4 quantization")
+        from modules.module.quantized.LinearNf4A8 import LinearNf4A8
+        return LinearNf4A8, {'dtype': torch.int8}
+    elif dtype.quantize_nf4_a8_float():
+        if LinearNf4 is None:
+            raise ImportError("bitsandbytes is required for NF4 quantization")
+        from modules.module.quantized.LinearNf4A8 import LinearNf4A8
+        return LinearNf4A8, {'dtype': torch.float8_e4m3fn}
     elif dtype.quantize_int8():
         if bnb is None:
             raise ImportError("bitsandbytes is required for int8 quantization")

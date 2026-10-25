@@ -21,6 +21,8 @@ class DataType(Enum):
     GGUF_A8_INT = 'GGUF_A8_INT'
     BFLOAT_16_A8_INT = 'BFLOAT_16_A8_INT'
     BFLOAT_16_A8_FLOAT = 'BFLOAT_16_A8_FLOAT'
+    NFLOAT_4_A8_INT = 'NFLOAT_4_A8_INT'
+    NFLOAT_4_A8_FLOAT = 'NFLOAT_4_A8_FLOAT'
 
     def __str__(self):
         return self.value
@@ -90,3 +92,9 @@ class DataType(Enum):
 
     def quantize_nf4(self):
         return self == DataType.NFLOAT_4
+
+    def quantize_nf4_a8_int(self):
+        return self == DataType.NFLOAT_4_A8_INT
+
+    def quantize_nf4_a8_float(self):
+        return self == DataType.NFLOAT_4_A8_FLOAT

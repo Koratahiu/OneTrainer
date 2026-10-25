@@ -77,6 +77,8 @@ class BaseModelTabView(ABC):
             options += [
                 ("bfloat16 A8 int", DataType.BFLOAT_16_A8_INT),
                 ("bfloat16 A8 float", DataType.BFLOAT_16_A8_FLOAT),
+                ("NF4 A8 int", DataType.NFLOAT_4_A8_INT),
+                ("NF4 A8 float", DataType.NFLOAT_4_A8_FLOAT),
             ]
 
         if include_gguf:

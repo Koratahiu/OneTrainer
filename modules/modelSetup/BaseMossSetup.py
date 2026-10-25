@@ -14,6 +14,7 @@ from modules.util.checkpointing_util import (
     enable_checkpointing_for_moss_encoder_layers,
 )
 from modules.util.config.TrainConfig import TrainConfig, TrainEmbeddingConfig
+from modules.util.tqdm_util import tqdm
 from modules.util.TrainProgress import TrainProgress
 
 import torch
@@ -57,6 +58,9 @@ class BaseMossSetup(
             *,
             deterministic: bool = False,
     ) -> dict:
+        if not deterministic:
+            self._maybe_vision_init_embeddings(model, batch, config)
+
         with model.autocast_context:
             batch_seed = 0 if deterministic else train_progress.global_step * multi.world_size() + multi.rank()
             generator = torch.Generator(device=config.train_device)
@@ -229,6 +233,14 @@ class BaseMossSetup(
                 embedding_config.placeholder,
                 token_count,
             )
+            # vision-based init: new embeddings with image_init on are temporarily
+            # text-initialized, then replaced in place by the pooled vision-tower
+            # encoding of their training images (see _maybe_vision_init_embeddings).
+            # a saved embedding state always takes precedence over image init.
+            if embedding_config.image_init and embedding_state is None:
+                embedding.image_init_pending = True
+                embedding.image_init_target = embedding_config.image_init_count
+
             embedding.append_token = append_token
             embedding.vector = append_token  # alias so BaseModelEmbedding.append_embed_token can gate on the trigger word
             model.append_tokens[embedding_config.uuid] = append_token
@@ -239,6 +251,68 @@ class BaseMossSetup(
                 additional_embeddings.append(embedding)
 
         model.additional_embeddings = additional_embeddings
+
+    def _maybe_vision_init_embeddings(
+            self,
+            model: MossModel,
+            batch: dict,
+            config: TrainConfig,
+    ):
+        """Replace the append tokens of pending image-init embeddings with the pooled
+        vision-tower encoding of their training images.
+
+        Runs on every (non-deterministic) forward pass: for each pending embedding it
+        collects the image paths of the batch samples whose caption contains the
+        embedding's placeholder, accumulates them across batches until image_init_count
+        is reached (None = the first matching batch suffices), then encodes the images
+        through the text encoder's vision tower and copies the pooled tokens in place
+        into the registered parameter (the optimizer holds the tensor reference, so the
+        object must not be replaced). The result is broadcast from rank 0 for
+        multi-GPU consistency, since each rank accumulates its own shard of images.
+        """
+        pending = [
+            emb for emb in model.all_embeddings()
+            if emb.image_init_pending and emb.uuid in model.append_tokens
+        ]
+        if not pending:
+            return
+
+        captions = batch.get('prompt') or []
+        image_paths = batch.get('image_path') or []
+
+        for emb in pending:
+            new_paths = [
+                image_paths[i]
+                for i, caption in enumerate(captions)
+                if i < len(image_paths) and emb.placeholder in (caption or "")
+            ]
+            if not new_paths:
+                continue
+
+            emb.image_init_paths.extend(new_paths)
+            if emb.image_init_target is not None and len(emb.image_init_paths) < emb.image_init_target:
+                continue  # keep collecting across batches
+
+            tokens = model.encode_images_vision_pooled(
+                image_paths=emb.image_init_paths,
+                token_count=emb.token_count,
+                train_device=self.train_device,
+                train_dtype=model.train_dtype.torch_dtype(),
+            )
+            if tokens is None:
+                emb.image_init_paths = []
+                continue
+
+            param = model.append_tokens[emb.uuid]
+            with torch.no_grad():
+                param.copy_(tokens.to(device=param.device, dtype=param.dtype))
+            multi.broadcast_parameters([param], self.train_device)
+
+            emb.image_init_pending = False
+            tqdm.write(
+                f"vision init: replaced append tokens of embedding '{emb.placeholder}' "
+                f"with the pooled vision encoding of {len(emb.image_init_paths)} training image(s)"
+            )
 
     def _setup_embeddings_requires_grad(
             self,

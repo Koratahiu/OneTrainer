@@ -384,6 +384,8 @@ class TrainEmbeddingConfig(BaseConfig):
     token_count: int | None
     initial_embedding_text: str
     is_output_embedding: bool
+    image_init: bool
+    image_init_count: int | None
 
     def __init__(self, data: list[(str, Any, type, bool)]):
         super().__init__(data)
@@ -402,6 +404,8 @@ class TrainEmbeddingConfig(BaseConfig):
         data.append(("token_count", 1, int, True))
         data.append(("initial_embedding_text", "*", str, False))
         data.append(("is_output_embedding", False, bool, False))
+        data.append(("image_init", False, bool, False))
+        data.append(("image_init_count", None, int, True))
 
         return TrainEmbeddingConfig(data)
 

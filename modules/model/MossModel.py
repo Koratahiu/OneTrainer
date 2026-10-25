@@ -46,6 +46,14 @@ class MossModelEmbedding(BaseModelEmbedding):
         self.token_count = token_count
         self.append_token: Tensor | None = None
 
+        # vision-based init state (set by BaseMossSetup when the config's image_init is on
+        # and the embedding is new): the append tokens start from a temporary text-based
+        # init and are replaced in place by the vision-tower pooled encoding of the
+        # concept's training images once enough of them have been seen in the stream.
+        self.image_init_pending: bool = False
+        self.image_init_paths: list[str] = []
+        self.image_init_target: int | None = None
+
 
 class MossModel(BaseModel):
     # base model data
@@ -204,6 +212,91 @@ class MossModel(BaseModel):
         bool_attention_mask = torch.arange(max_seq_length, device=train_device).unsqueeze(0) < seq_lengths.unsqueeze(1)
 
         return (text_encoder_output, bool_attention_mask)
+
+    def encode_images_vision_pooled(
+            self,
+            image_paths: list[str],
+            token_count: int,
+            train_device: torch.device,
+            train_dtype: torch.dtype,
+    ) -> Tensor | None:
+        """Encode images with the text encoder's vision tower and pool the result to
+        token_count vectors in the text hidden space.
+
+        Each image is resized (aspect-preserving) to a multiple of 32 px (patch size 16
+        times the spatial merge of 2), duplicated along the temporal axis, unfolded into
+        16x16 patches, and passed through get_image_features; the per-image patch tokens
+        are mean-pooled to one vector, then the stack of vectors is linearly interpolated
+        to token_count. Returns None if no image could be loaded.
+        """
+        import numpy as np
+        from PIL import Image
+
+        patch = 16
+        multiple = patch * 2  # spatial merge size
+        mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32).view(3, 1, 1)
+        std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32).view(3, 1, 1)
+
+        def _load_resized(path: str) -> Tensor | None:
+            try:
+                with Image.open(path) as im:
+                    im = im.convert('RGB')
+                    w, h = im.size
+                    scale = math.sqrt((512 * 512) / (w * h))
+                    new_w = max(multiple, min(1344, int(round(w * scale / multiple) * multiple)))
+                    new_h = max(multiple, min(1344, int(round(h * scale / multiple) * multiple)))
+                    im = im.resize((new_w, new_h))
+                    arr = np.asarray(im, dtype=np.float32)
+            except Exception:
+                return None
+            x = torch.from_numpy(arr).permute(2, 0, 1) / 255.0
+            return (x - mean) / std
+
+        images = [t for t in (_load_resized(p) for p in image_paths) if t is not None]
+        if not images:
+            return None
+
+        pixel_values_list = []
+        grid_list = []
+        for x in images:
+            c, h, w = x.shape
+            # duplicate along the temporal axis, then unfold into (h*w/patch^2, 3, 2, patch, patch)
+            xt = x.unsqueeze(1).repeat(1, 2, 1, 1)
+            patches = xt.unfold(2, patch, patch).unfold(3, patch, patch)
+            patches = patches.contiguous().reshape(-1, 3, 2, patch, patch)
+            pixel_values_list.append(patches)
+            grid_list.append([1, h // patch, w // patch])
+
+        pixel_values = torch.cat(pixel_values_list, dim=0).to(device=train_device, dtype=torch.float32)
+        grid_thw = torch.tensor(grid_list, device=train_device, dtype=torch.long)
+
+        model = self.text_encoder
+        model.materialize_only("text_encoder")
+        try:
+            with torch.no_grad(), self.text_encoder_autocast_context:
+                outputs = model.get_image_features(pixel_values, grid_thw)
+                pooled_images = [feat.mean(dim=0) for feat in outputs.pooler_output]
+        finally:
+            model.evict("text_encoder")
+
+        stacked = torch.stack(pooled_images, dim=0)  # (num_images, hidden_dim)
+        num_images = stacked.shape[0]
+        if num_images != token_count:
+            if num_images == 1:
+                # a single image cannot be resampled; replicate its vector
+                stacked = stacked.expand(token_count, -1)
+            elif num_images > token_count:
+                # downsample: block-average over the full set of image vectors so every
+                # token carries the meaning of all images (a pure linear resample would
+                # only blend a local window and, at token_count=1, just two images)
+                stacked = F.adaptive_avg_pool1d(stacked.unsqueeze(0), output_size=token_count).squeeze(0)
+            else:
+                # upsample: linearly blend between neighboring image vectors (linear mode
+                # resizes the last dimension, so move the image axis to the end)
+                stacked = F.interpolate(
+                    stacked.unsqueeze(0).transpose(1, 2), size=token_count, mode='linear', align_corners=False
+                ).transpose(1, 2).squeeze(0)
+        return stacked.to(device=train_device, dtype=train_dtype)
 
     def scale_latents(self, latents: Tensor) -> Tensor:
         # the FLUX.2 VAE emits 32-channel latents at 1/8 image scale, but the transformer

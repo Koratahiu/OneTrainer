@@ -410,6 +410,7 @@ class QuantizationConfig(BaseConfig):
     layer_filter_preset: str
     layer_filter_regex: bool
     fallback_dtype: DataType
+    convrot_compute_dtype: DataType
     svd_dtype: DataType
     svd_rank: int
     quant_rot_dtype: DataType
@@ -425,6 +426,7 @@ class QuantizationConfig(BaseConfig):
         data.append(("layer_filter_preset", "full", str, False))
         data.append(("layer_filter_regex", False, bool, False))
         data.append(("fallback_dtype", DataType.BFLOAT_16, DataType, False))
+        data.append(("convrot_compute_dtype", DataType.NONE, DataType, False))
         data.append(("svd_dtype", DataType.NONE, DataType, False))
         data.append(("svd_rank", 16, int, False))
         data.append(("quant_rot_dtype", DataType.NONE, DataType, False))

@@ -70,11 +70,5 @@ class BaseEmbeddingWidgetView:
                               tooltip="The initial embedding text used when creating a new embedding")
         self.components.entry(bottom_frame, 0, 7, self.ui_state, "initial_embedding_text")
 
-        # image init
-        self.components.label(bottom_frame, 0, 8, "image init:",
-                              tooltip="Initialize the embedding from the concept's training images encoded by the text encoder's vision tower, instead of the initial embedding text. Images are collected from the training stream until the count to the right is reached, pooled into one vector per image, and interpolated to the token count.")
-        self.components.switch(bottom_frame, 0, 9, self.ui_state, "image_init", command=save_command)
-        self.components.entry(bottom_frame, 0, 10, self.ui_state, "image_init_count", width=60)
-
     def configure_element(self):
         pass

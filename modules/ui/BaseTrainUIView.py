@@ -337,30 +337,24 @@ class BaseTrainUIView(ABC):
                          tooltip="The initial embedding text used when creating a new embedding")
         self.components.entry(frame, 2, 1, ui_state, "embedding.initial_embedding_text")
 
-        # image init
-        self.components.label(frame, 3, 0, "Image init",
-                         tooltip="Initialize the embedding from the concept's training images encoded by the text encoder's vision tower, instead of the initial embedding text. Images are collected from the training stream until the count below is reached, pooled into one vector per image, and interpolated to the token count.")
-        self.components.switch(frame, 3, 1, ui_state, "embedding.image_init")
-        self.components.entry(frame, 3, 2, ui_state, "embedding.image_init_count", width=60)
-
         # embedding weight dtype
-        self.components.label(frame, 4, 0, "Embedding Weight Data Type",
+        self.components.label(frame, 3, 0, "Embedding Weight Data Type",
                          tooltip="The Embedding weight data type used for training. This can reduce memory consumption, but reduces precision")
-        self.components.options_kv(frame, 4, 1, [
+        self.components.options_kv(frame, 3, 1, [
             ("float32", DataType.FLOAT_32),
             ("bfloat16", DataType.BFLOAT_16),
         ], ui_state, "embedding_weight_dtype")
 
         # placeholder
-        self.components.label(frame, 5, 0, "Placeholder",
+        self.components.label(frame, 4, 0, "Placeholder",
                          tooltip="The placeholder used when using the embedding in a prompt")
-        self.components.entry(frame, 5, 1, ui_state, "embedding.placeholder")
+        self.components.entry(frame, 4, 1, ui_state, "embedding.placeholder")
 
         # output embedding (hidden for models without an output embedding, e.g. Moss)
         if self._should_show_output_embedding_toggle():
-            self.components.label(frame, 6, 0, "Output embedding",
+            self.components.label(frame, 5, 0, "Output embedding",
                              tooltip="Output embeddings are calculated at the output of the text encoder, not the input. This can improve results for larger text encoders and lower VRAM usage.")
-            self.components.switch(frame, 6, 1, ui_state, "embedding.is_output_embedding")
+            self.components.switch(frame, 5, 1, ui_state, "embedding.is_output_embedding")
 
     def build_tools_tab_content(self, frame, controller, ui_state):
         # dataset

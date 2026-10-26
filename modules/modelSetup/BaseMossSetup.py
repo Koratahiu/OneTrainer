@@ -212,15 +212,7 @@ class BaseMossSetup(
             token_count = embedding_config.token_count or 1
 
             if embedding_state is None:
-                if embedding_config.image_init:
-                    # the vision init (VisionInitDataLoader) replaces this in place before the first
-                    # training step, so skip the text-based init - it would materialize the text
-                    # encoder and encode initial_embedding_text for a vector that is discarded
-                    append_token = torch.zeros(
-                        token_count, hidden_dim, device=self.train_device, dtype=train_dtype
-                    ).requires_grad_(True)
-                else:
-                    append_token = self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
+                append_token = self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
             else:
                 embedding_state = embedding_state.get("moss", None)
 
@@ -237,15 +229,6 @@ class BaseMossSetup(
                 embedding_config.placeholder,
                 token_count,
             )
-            # vision-based init: new embeddings with image_init on start from a zero
-            # placeholder, then are replaced in place by the pooled vision-tower
-            # encoding of their training images during the trainer's first-epoch
-            # pre-scan (see modules.trainer.vision_init.VisionInitDataLoader).
-            # a saved embedding state always takes precedence over image init.
-            if embedding_config.image_init and embedding_state is None:
-                embedding.image_init_pending = True
-                embedding.image_init_target = embedding_config.image_init_count
-
             embedding.append_token = append_token
             embedding.vector = append_token  # alias so BaseModelEmbedding.append_embed_token can gate on the trigger word
             model.append_tokens[embedding_config.uuid] = append_token

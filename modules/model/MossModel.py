@@ -1,6 +1,7 @@
 import hashlib
 import math
 import os
+import re
 from contextlib import nullcontext
 from random import Random
 
@@ -225,11 +226,13 @@ class MossModel(BaseModel):
         """Encode images with the text encoder's vision tower and pool the result to
         token_count vectors in the text hidden space.
 
-        Each image is resized (aspect-preserving) to a multiple of 32 px (patch size 16
-        times the spatial merge of 2), duplicated along the temporal axis, unfolded into
-        16x16 patches, and passed through get_image_features; the per-image patch tokens
-        are mean-pooled to one vector, then the stack of vectors is linearly interpolated
-        to token_count. Returns None if no image could be loaded.
+        Each path is loaded from disk, resized (aspect-preserving) to a multiple of 32 px
+        (patch size 16 times the spatial merge of 2, capped at the configured train
+        resolution), duplicated along the temporal axis, unfolded into 16x16 patches, and
+        passed through get_image_features one image at a time - the per-image tensors are
+        freed immediately after encoding so memory never holds more than one image; the
+        per-image patch tokens are mean-pooled to one vector, then the stack of vectors is
+        linearly interpolated to token_count. Returns None if no image could be loaded.
         """
         import numpy as np
         from PIL import Image
@@ -238,6 +241,8 @@ class MossModel(BaseModel):
         multiple = patch * 2  # spatial merge size
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32).view(3, 1, 1)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32).view(3, 1, 1)
+        # scale down to the configured train resolution (smallest dimension of e.g. "1024x768")
+        max_px = min([int(x.strip()) for x in re.split(r'\D', self.train_config.resolution) if x.strip() != ''])
 
         def _load_resized(path: str) -> Tensor | None:
             try:
@@ -245,9 +250,9 @@ class MossModel(BaseModel):
                     im = im.convert('RGB')
                     w, h = im.size
                     # keep the original resolution: only snap to the 32px grid the vision tower
-                    # requires (1344px cap as a VRAM safety net for very large sources)
-                    new_w = max(multiple, min(1344, int(round(w / multiple)) * multiple))
-                    new_h = max(multiple, min(1344, int(round(h / multiple)) * multiple))
+                    # requires (train-resolution cap as a VRAM safety net for very large sources)
+                    new_w = max(multiple, min(max_px, int(round(w / multiple)) * multiple))
+                    new_h = max(multiple, min(max_px, int(round(h / multiple)) * multiple))
                     im = im.resize((new_w, new_h))
                     arr = np.asarray(im, dtype=np.float32)
             except Exception:
@@ -255,36 +260,32 @@ class MossModel(BaseModel):
             x = torch.from_numpy(arr).permute(2, 0, 1) / 255.0
             return (x - mean) / std
 
-        images = [t for t in (_load_resized(p) for p in image_paths) if t is not None]
-        if not images:
-            return None
-
-        pixel_values_list = []
-        grid_list = []
-        for x in images:
-            c, h, w = x.shape
-            # duplicate along the temporal axis, then unfold into (h*w/patch^2, 3, 2, patch, patch)
-            xt = x.unsqueeze(1).repeat(1, 2, 1, 1)
-            patches = xt.unfold(2, patch, patch).unfold(3, patch, patch)
-            patches = patches.contiguous().reshape(-1, 3, 2, patch, patch)
-            pixel_values_list.append(patches)
-            grid_list.append([1, h // patch, w // patch])
-
         pooled_images = []
         model = self.text_encoder
         self.materialize_only("text_encoder")
         try:
             with torch.no_grad(), self.text_encoder_autocast_context:
-                for patches, grid in zip(pixel_values_list, grid_list):
+                # load, encode, and free one image at a time (streaming from disk)
+                for path in image_paths:
+                    x = _load_resized(path)
+                    if x is None:
+                        continue
+                    c, h, w = x.shape
+                    # duplicate along the temporal axis, then unfold into (h*w/patch^2, 3, 2, patch, patch)
+                    xt = x.unsqueeze(1).repeat(1, 2, 1, 1)
+                    patches = xt.unfold(2, patch, patch).unfold(3, patch, patch)
+                    patches = patches.contiguous().reshape(-1, 3, 2, patch, patch)
                     pixel_values = patches.to(device=train_device, dtype=torch.float32)
-                    grid_thw = torch.tensor([grid], device=train_device, dtype=torch.long)
+                    grid_thw = torch.tensor([1, h // patch, w // patch], device=train_device, dtype=torch.long)
                     outputs = model.get_image_features(pixel_values, grid_thw)
                     pooled_images.extend(feat.mean(dim=0) for feat in outputs.pooler_output)
-                    del pixel_values, outputs
+                    del x, xt, patches, pixel_values, outputs
                     torch.cuda.empty_cache()
         finally:
             self.evict("text_encoder")
 
+        if not pooled_images:
+            return None
         stacked = torch.stack(pooled_images, dim=0)  # (num_images, hidden_dim)
         num_images = stacked.shape[0]
         if num_images != token_count:

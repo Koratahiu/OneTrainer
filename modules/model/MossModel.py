@@ -241,16 +241,18 @@ class MossModel(BaseModel):
         multiple = patch * 2  # spatial merge size
         mean = torch.tensor((0.485, 0.456, 0.406), dtype=torch.float32).view(3, 1, 1)
         std = torch.tensor((0.229, 0.224, 0.225), dtype=torch.float32).view(3, 1, 1)
-        # scale down to the configured train resolution (smallest dimension of e.g. "1024x768")
-        max_px = min([int(x.strip()) for x in re.split(r'\D', self.train_config.resolution) if x.strip() != ''])
+        # target box from the configured train resolution (e.g. "1024x768" -> width x height)
+        res_dims = [int(x.strip()) for x in re.split(r'\D', self.train_config.resolution) if x.strip() != '']
+        box_w, box_h = (res_dims[0], res_dims[1]) if len(res_dims) >= 2 else (res_dims[0], res_dims[0])
 
         def _load_resized(path: str) -> Tensor | None:
             try:
                 with Image.open(path) as im:
                     im = im.convert('RGB')
                     w, h = im.size
-                    new_w = max(multiple, min(max_px, int(round(w / multiple)) * multiple))
-                    new_h = max(multiple, min(max_px, int(round(h / multiple)) * multiple))
+                    scale = min(box_w / w, box_h / h, 1.0)
+                    new_w = max(multiple, int(round(w * scale / multiple)) * multiple)
+                    new_h = max(multiple, int(round(h * scale / multiple)) * multiple)
                     im = im.resize((new_w, new_h))
                     arr = np.asarray(im, dtype=np.float32)
             except Exception:
@@ -270,11 +272,13 @@ class MossModel(BaseModel):
                         continue
                     c, h, w = x.shape
                     # duplicate along the temporal axis, then unfold the SPATIAL dims (2, 3) into
-                    # (num_patches, 3, 2, patch, patch); unfolding (1, 2) would hit the channel dim
-                    # and collapse everything into a single bogus image
+                    # (C, 2, ph, pw, patch, patch). The qwen3_5 tower orders its patches BLOCK-MAJOR:
+                    # (merged 2x2 block row, block col, intra-block row, intra-block col)
                     xt = x.unsqueeze(1).repeat(1, 2, 1, 1)
                     patches = xt.unfold(2, patch, patch).unfold(3, patch, patch)
-                    patches = patches.permute(4, 5, 0, 1, 2, 3).reshape(-1, c, 2, patch, patch)
+                    merged_h, merged_w = h // (patch * 2), w // (patch * 2)
+                    patches = patches.reshape(c, 2, merged_h, 2, merged_w, 2, patch, patch) \
+                                     .permute(2, 4, 3, 5, 0, 1, 6, 7).reshape(-1, c, 2, patch, patch)
                     pixel_values = patches.to(device=train_device, dtype=torch.float32)
                     grid_thw = torch.tensor([[1, h // patch, w // patch]], device=train_device, dtype=torch.long)
                     outputs = model.get_image_features(pixel_values, grid_thw)
@@ -347,9 +351,16 @@ class MossModel(BaseModel):
         return encoding
 
     def __vision_encoding_disk_key(self, canonical_paths: tuple[str, ...], token_count: int) -> str:
-        # ModelType + token_count + the canonical image set. train_device/train_dtype are
-        # transient and excluded; every input that changes the encoding is part of the key.
-        key_str = "\x00".join([self.model_type.name, str(token_count), "\n".join(canonical_paths)])
+        # ModelType + token_count + resolution + the canonical image set.
+        # train_device/train_dtype are transient and excluded; every input that changes the
+        # encoding is part of the key.
+        resolution = self.train_config.resolution if self.train_config is not None else ''
+        key_str = "\x00".join([
+            self.model_type.name,
+            str(token_count),
+            resolution,
+            "\n".join(canonical_paths),
+        ])
         return hashlib.sha256(key_str.encode("utf-8")).hexdigest()
 
     def __vision_encoding_disk_path(self, canonical_paths: tuple[str, ...], token_count: int) -> str | None:

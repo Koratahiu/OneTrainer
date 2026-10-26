@@ -274,7 +274,7 @@ class MossModel(BaseModel):
                     patches = xt.unfold(2, patch, patch).unfold(3, patch, patch)
                     patches = patches.contiguous().reshape(-1, 3, 2, patch, patch)
                     pixel_values = patches.to(device=train_device, dtype=torch.float32)
-                    grid_thw = torch.tensor([1, h // patch, w // patch], device=train_device, dtype=torch.long)
+                    grid_thw = torch.tensor([[1, h // patch, w // patch]], device=train_device, dtype=torch.long)
                     outputs = model.get_image_features(pixel_values, grid_thw)
                     pooled_images.extend(feat.mean(dim=0) for feat in outputs.pooler_output)
                     del x, xt, patches, pixel_values, outputs

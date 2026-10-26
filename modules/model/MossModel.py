@@ -270,25 +270,14 @@ class MossModel(BaseModel):
             pixel_values_list.append(patches)
             grid_list.append([1, h // patch, w // patch])
 
-        # encode in chunks
-        max_chunk_tokens = 4096
-        chunks: list[list] = [[]]
-        chunk_tokens = 0
-        for patches, grid in zip(pixel_values_list, grid_list):
-            if chunk_tokens + patches.shape[0] > max_chunk_tokens and chunks[-1]:
-                chunks.append([])
-                chunk_tokens = 0
-            chunks[-1].append((patches, grid))
-            chunk_tokens += patches.shape[0]
-
         pooled_images = []
         model = self.text_encoder
         self.materialize_only("text_encoder")
         try:
             with torch.no_grad(), self.text_encoder_autocast_context:
-                for chunk in chunks:
-                    pixel_values = torch.cat([p for p, _ in chunk], dim=0).to(device=train_device, dtype=torch.float32)
-                    grid_thw = torch.tensor([g for _, g in chunk], device=train_device, dtype=torch.long)
+                for patches, grid in zip(pixel_values_list, grid_list):
+                    pixel_values = patches.to(device=train_device, dtype=torch.float32)
+                    grid_thw = torch.tensor([grid], device=train_device, dtype=torch.long)
                     outputs = model.get_image_features(pixel_values, grid_thw)
                     pooled_images.extend(feat.mean(dim=0) for feat in outputs.pooler_output)
                     del pixel_values, outputs

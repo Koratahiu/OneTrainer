@@ -1,6 +1,5 @@
 from collections.abc import Callable
 from functools import partial
-from typing import cast
 
 import modules.util.multi_gpu_util as multi
 import modules.util.nvcomp_util as nvcomp_util
@@ -446,10 +445,9 @@ def get_offload_tensors(module: nn.Module) -> list[torch.Tensor]:
 
     if bnb is not None:
         if LinearNf4 is not None and isinstance(module, LinearNf4):
-            from bitsandbytes.functional import QuantState
-
-            quant_state = cast(QuantState, module.quant_state)
-            tensors.append(quant_state.absmax)
+            # quant_state is None on shell modules (not yet materialized from the checkpoint); the
+            # registered _absmax buffer is the identical object as quant_state.absmax once quantized.
+            tensors.append(module._absmax)
     if isinstance(module, nn.Linear | nn.Conv2d):
         tensors += [module.weight]
     if isinstance(module, nn.Linear) and module.bias is not None:

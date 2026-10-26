@@ -36,8 +36,7 @@ def _matching_image_paths_from_disk(concepts, placeholder, target):
                 matches.extend(_list_image_files(path, concept.get('include_subdirectories', False)))
         else:
             for file_name in _list_image_files(path, concept.get('include_subdirectories', False)):
-                caption = _read_first_line(file_name + '.txt')
-                if placeholder in caption:
+                if placeholder in _read_first_line(os.path.splitext(file_name)[0] + '.txt'):
                     matches.append(file_name)
         if target is not None and len(matches) >= target:
             break

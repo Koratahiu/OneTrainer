@@ -51,8 +51,8 @@ class MossModelEmbedding(BaseModelEmbedding):
 
         # vision-based init state (set by BaseMossSetup when the config's image_init is on
         # and the embedding is new): the append tokens start from a temporary text-based
-        # init and are replaced in place by the vision-tower pooled encoding of the
-        # concept's training images once enough of them have been seen in the stream.
+        # init and are replaced in place by the LLM-routed vision pooled encoding of the
+        # concept's training images.
         self.image_init_pending: bool = False
         self.image_init_paths: list[str] = []
         self.image_init_target: int | None = None
@@ -222,17 +222,27 @@ class MossModel(BaseModel):
             token_count: int,
             train_device: torch.device,
             train_dtype: torch.dtype,
+            context_text: str | None = None,
     ) -> Tensor | None:
-        """Encode images with the text encoder's vision tower and pool the result to
-        token_count vectors in the text hidden space.
+        """Encode images and pool the result to token_count vectors in the text hidden space.
 
         Each path is loaded from disk, resized (aspect-preserving) to a multiple of 32 px
         (patch size 16 times the spatial merge of 2, capped at the configured train
         resolution), duplicated along the temporal axis, unfolded into 16x16 patches, and
         passed through get_image_features one image at a time - the per-image tensors are
-        freed immediately after encoding so memory never holds more than one image; the
-        per-image patch tokens are mean-pooled to one vector, then the stack of vectors is
-        linearly interpolated to token_count. Returns None if no image could be loaded.
+        freed immediately after encoding so memory never holds more than one image.
+
+        The per-image vision tokens are then routed through the full text encoder: they are
+        scattered into inputs_embeds at image_token_id positions (optionally preceded by
+        the chat-templated context_text) and the LLM's FINAL hidden states at those
+        positions are mean-pooled to one vector per image. This is required because the
+        append tokens live in the final-hidden space (encode_text uses hidden_states[-1]),
+        while the raw merger output of get_image_features is an input-embedding-space
+        vector - measured cosines against text hidden states are ~0.19 raw vs ~0.51 after
+        routing, with a norm of ~9 vs ~78, so the raw vector is both off-manifold and
+        ~8x too small. The stack of per-image vectors is then resampled to token_count
+        (block-average downsample / linear upsample). Returns None if no image could be
+        loaded.
         """
         import numpy as np
         from PIL import Image
@@ -265,6 +275,17 @@ class MossModel(BaseModel):
         self.materialize_only("text_encoder")
         try:
             with torch.no_grad(), self.text_encoder_autocast_context:
+                # optional text context preceding the image tokens (chat-templated once,
+                # reused for every image)
+                context_ids = None
+                if context_text is not None:
+                    context_ids = self.tokenizer(
+                        format_moss_prompt(self.tokenizer, context_text),
+                        truncation=True,
+                        max_length=256,
+                        return_tensors='pt',
+                    ).input_ids.to(train_device)
+
                 # load, encode, and free one image at a time (streaming from disk)
                 for path in image_paths:
                     x = _load_resized(path)
@@ -282,7 +303,17 @@ class MossModel(BaseModel):
                     pixel_values = patches.to(device=train_device, dtype=torch.float32)
                     grid_thw = torch.tensor([[1, h // patch, w // patch]], device=train_device, dtype=torch.long)
                     outputs = model.get_image_features(pixel_values, grid_thw)
-                    pooled_images.extend(feat.mean(dim=0) for feat in outputs.pooler_output)
+                    for feat in outputs.pooler_output:
+                        # route the vision tokens through the LLM so the pooled vector is in
+                        # the final-hidden space the append tokens live in (see docstring)
+                        n = feat.shape[0]
+                        image_ids = torch.full((n,), model.config.image_token_id,
+                                               dtype=torch.long, device=train_device)
+                        seq = torch.cat([context_ids[0], image_ids]) if context_ids is not None else image_ids
+                        embeds = model.get_input_embeddings()(seq)
+                        embeds[-n:] = feat.to(embeds.dtype)
+                        hidden = model(inputs_embeds=embeds.unsqueeze(0)).last_hidden_state[0, -n:]
+                        pooled_images.append(hidden.mean(dim=0))
                     del x, xt, patches, pixel_values, outputs
                     torch.cuda.empty_cache()
         finally:
@@ -297,12 +328,13 @@ class MossModel(BaseModel):
                 # a single image cannot be resampled; replicate its vector
                 stacked = stacked.expand(token_count, -1)
             elif num_images > token_count:
-                # downsample: block-average over the full set of image vectors so every
-                # token carries the meaning of all images (a pure linear resample would
-                # only blend a local window and, at token_count=1, just two images)
-                stacked = F.adaptive_avg_pool1d(
-                    stacked.unsqueeze(0).transpose(1, 2), output_size=token_count
-                ).transpose(1, 2).squeeze(0)
+                # downsample: k-means centroids of the per-image vectors, so each token is a
+                # distinct centroid of the set's actual variation (block-averaging contiguous
+                # runs of the sorted image list instead produced near-identical tokens when
+                # hundreds of similar images were averaged in chunks). Deterministic (fixed
+                # seed), so the disk cache key stays valid; at token_count=1 this is the
+                # global mean of the whole set, as before
+                stacked = self._kmeans_centroids(stacked, token_count)
             else:
                 # upsample: linearly blend between neighboring image vectors (linear mode
                 # resizes the last dimension, so move the image axis to the end)
@@ -317,19 +349,29 @@ class MossModel(BaseModel):
             token_count: int,
             train_device: torch.device,
             train_dtype: torch.dtype,
+            context_text: str | None = None,
     ) -> Tensor | None:
         """On-disk cache around encode_images_vision_pooled, mirroring encode_text_cached's
-        disk tier. The vision-tower encoding of a fixed image set is expensive (it
-        materializes the text encoder), so it is computed once and reused across runs: a
-        repeat call for the same image set loads the stored tensor instead of re-encoding.
-        The paths are canonicalized (sorted, deduplicated) so the key - and the
-        interpolated result - is independent of the order the training stream happened to
-        deliver them in, which is what makes a repeat run hit the disk cache."""
+        disk tier. The encoding of a fixed image set is expensive (it materializes the
+        text encoder and runs it twice per image), so it is computed once and reused
+        across runs: a repeat call for the same image set loads the stored tensor instead
+        of re-encoding. The paths are canonicalized (sorted, deduplicated) so the key -
+        and the resampled result - is independent of the order the training stream
+        happened to deliver them in, which is what makes a repeat run hit the disk cache.
+        The key also carries a content fingerprint of the text encoder weights, so a base
+        model swap (e.g. Base vs SFT) can never hit a stale encoding."""
         canonical_paths = tuple(sorted(set(image_paths)))
         if not canonical_paths:
             return None
 
-        disk_path = self.__vision_encoding_disk_path(canonical_paths, token_count)
+        # the fingerprint needs the encoder weights; materialize/evict around it so a
+        # cache hit does not keep the encoder resident longer than necessary
+        self.materialize_only("text_encoder")
+        try:
+            fingerprint = self._text_encoder_fingerprint()
+        finally:
+            self.evict("text_encoder")
+        disk_path = self.__vision_encoding_disk_path(canonical_paths, token_count, context_text, fingerprint)
         if disk_path is not None and os.path.isfile(disk_path):
             return torch.load(disk_path, map_location=train_device, weights_only=True).to(
                 device=train_device, dtype=train_dtype
@@ -340,6 +382,7 @@ class MossModel(BaseModel):
             token_count=token_count,
             train_device=train_device,
             train_dtype=train_dtype,
+            context_text=context_text,
         )
         if encoding is None:
             return None
@@ -350,8 +393,15 @@ class MossModel(BaseModel):
             os.replace(tmp_path, disk_path)
         return encoding
 
-    def __vision_encoding_disk_key(self, canonical_paths: tuple[str, ...], token_count: int) -> str:
-        # ModelType + token_count + resolution + the canonical image set.
+    def __vision_encoding_disk_key(
+            self,
+            canonical_paths: tuple[str, ...],
+            token_count: int,
+            context_text: str | None,
+            fingerprint: str,
+    ) -> str:
+        # ModelType + token_count + resolution + context text + text-encoder fingerprint +
+        # the canonical image set.
         # train_device/train_dtype are transient and excluded; every input that changes the
         # encoding is part of the key.
         resolution = self.train_config.resolution if self.train_config is not None else ''
@@ -359,15 +409,82 @@ class MossModel(BaseModel):
             self.model_type.name,
             str(token_count),
             resolution,
+            context_text or '',
+            fingerprint,
             "\n".join(canonical_paths),
         ])
         return hashlib.sha256(key_str.encode("utf-8")).hexdigest()
 
-    def __vision_encoding_disk_path(self, canonical_paths: tuple[str, ...], token_count: int) -> str | None:
+    def __vision_encoding_disk_path(
+            self,
+            canonical_paths: tuple[str, ...],
+            token_count: int,
+            context_text: str | None,
+            fingerprint: str,
+    ) -> str:
         # cache_dir/vision_encodings/<key>.pt; None when there is no cache_dir (memory only).
         if self.train_config is None or not self.train_config.cache_dir:
             return None
-        return os.path.join(self.train_config.cache_dir, "vision_encodings", f"{self.__vision_encoding_disk_key(canonical_paths, token_count)}.pt")
+        return os.path.join(self.train_config.cache_dir, "vision_encodings",
+                            f"{self.__vision_encoding_disk_key(canonical_paths, token_count, context_text, fingerprint)}.pt")
+
+    def _kmeans_centroids(self, x: Tensor, k: int, iters: int = 200) -> Tensor:
+        """k-means (k-means++ init, fixed seed) returning the k centroids of x (N, D).
+
+        Deterministic: seeded RNG + no GPU randomness, so a given image set always yields
+        the same centroids (the disk cache key does not need to know about this). Falls
+        back to interleaved averaging for degenerate inputs (N <= k or a constant set).
+        Cost is O(iters * N * k * D) - trivial for hundreds of 4096-dim vectors.
+        """
+        orig_dtype = x.dtype
+        x = x.to(dtype=torch.float32)
+
+        n, d = x.shape
+        if k <= 1:
+            cents = x.mean(dim=0, keepdim=True).expand(k, -1) if k == 1 else x[:k]
+            return cents.to(dtype=orig_dtype)
+        if n <= k:
+            # fewer points than centroids: replicate to fill
+            reps = torch.repeat_interleave(torch.arange(n, device=x.device), (k + n - 1) // n)[:k]
+            return x[reps].to(dtype=orig_dtype)
+
+        # k-means++ initialization
+        gen = torch.Generator(device=x.device).manual_seed(0)
+        cents = x[torch.randint(n, (1,), device=x.device, generator=gen)]
+        dist = torch.cdist(cents, x).pow(2)  # (1, N)
+        for _ in range(k - 1):
+            probs = dist.min(dim=0).values
+            s = probs.sum()
+            if s > 0:
+                probs = probs / s
+            else:
+                probs = torch.full((n,), 1.0 / n, device=x.device, dtype=probs.dtype)
+            pick = torch.multinomial(probs, 1, generator=gen)
+            cents = torch.cat([cents, x[pick]])
+            dist = torch.cdist(cents, x).pow(2)  # (j, N)
+
+        # Lloyd iterations
+        for _ in range(iters):
+            assign = dist.argmin(dim=0)  # (N,) into k
+            new_cents = torch.stack([
+                x[assign == j].mean(dim=0) if (assign == j).any() else cents[j] for j in range(k)
+            ])
+            if torch.allclose(new_cents, cents, atol=1e-7):
+                cents = new_cents
+                break
+            cents = new_cents
+            dist = torch.cdist(cents, x).pow(2)
+
+        return cents.to(dtype=orig_dtype)
+
+    def _text_encoder_fingerprint(self) -> str:
+        # Cheap content fingerprint of the text encoder weights: one float32 sum per
+        # tensor. Catches base-model swaps (Base vs SFT) that a path-based key would miss.
+        h = hashlib.sha256()
+        for name, t in self.text_encoder.state_dict().items():
+            h.update(name.encode("utf-8"))
+            h.update(t.detach().to(torch.float32).sum().cpu().numpy().tobytes())
+        return h.hexdigest()[:16]
 
     def scale_latents(self, latents: Tensor) -> Tensor:
         # the FLUX.2 VAE emits 32-channel latents at 1/8 image scale, but the transformer

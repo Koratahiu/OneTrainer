@@ -80,7 +80,8 @@ class VisionInitDataLoader:
     the training images whose caption contains its placeholder - directly from
     the concept metadata and the caption files on disk (no images, tensors, VAE
     or text-encoder work, so no meaningful RAM/VRAM cost). The images are then
-    encoded through the text encoder's vision tower and the pooled tokens are
+    encoded through the text encoder's vision tower, routed through the LLM so the
+    pooled tokens live in the final-hidden space the append tokens occupy, and
     copied in place into the registered append-token parameter (the optimizer
     holds the tensor reference, so the object is never replaced).
 
@@ -133,6 +134,7 @@ class VisionInitDataLoader:
                     token_count=emb.token_count,
                     train_device=train_device,
                     train_dtype=model.train_dtype.torch_dtype(),
+                    context_text=emb.placeholder,
                 )
                 if tokens is None:
                     continue

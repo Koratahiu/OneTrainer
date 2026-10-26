@@ -244,9 +244,10 @@ class MossModel(BaseModel):
                 with Image.open(path) as im:
                     im = im.convert('RGB')
                     w, h = im.size
-                    scale = math.sqrt((512 * 512) / (w * h))
-                    new_w = max(multiple, min(1344, int(round(w * scale / multiple) * multiple)))
-                    new_h = max(multiple, min(1344, int(round(h * scale / multiple) * multiple)))
+                    # keep the original resolution: only snap to the 32px grid the vision tower
+                    # requires (1344px cap as a VRAM safety net for very large sources)
+                    new_w = max(multiple, min(1344, int(round(w / multiple)) * multiple))
+                    new_h = max(multiple, min(1344, int(round(h / multiple)) * multiple))
                     im = im.resize((new_w, new_h))
                     arr = np.asarray(im, dtype=np.float32)
             except Exception:
@@ -269,15 +270,29 @@ class MossModel(BaseModel):
             pixel_values_list.append(patches)
             grid_list.append([1, h // patch, w // patch])
 
-        pixel_values = torch.cat(pixel_values_list, dim=0).to(device=train_device, dtype=torch.float32)
-        grid_thw = torch.tensor(grid_list, device=train_device, dtype=torch.long)
+        # encode in chunks
+        max_chunk_tokens = 4096
+        chunks: list[list] = [[]]
+        chunk_tokens = 0
+        for patches, grid in zip(pixel_values_list, grid_list):
+            if chunk_tokens + patches.shape[0] > max_chunk_tokens and chunks[-1]:
+                chunks.append([])
+                chunk_tokens = 0
+            chunks[-1].append((patches, grid))
+            chunk_tokens += patches.shape[0]
 
+        pooled_images = []
         model = self.text_encoder
         self.materialize_only("text_encoder")
         try:
             with torch.no_grad(), self.text_encoder_autocast_context:
-                outputs = model.get_image_features(pixel_values, grid_thw)
-                pooled_images = [feat.mean(dim=0) for feat in outputs.pooler_output]
+                for chunk in chunks:
+                    pixel_values = torch.cat([p for p, _ in chunk], dim=0).to(device=train_device, dtype=torch.float32)
+                    grid_thw = torch.tensor([g for _, g in chunk], device=train_device, dtype=torch.long)
+                    outputs = model.get_image_features(pixel_values, grid_thw)
+                    pooled_images.extend(feat.mean(dim=0) for feat in outputs.pooler_output)
+                    del pixel_values, outputs
+                    torch.cuda.empty_cache()
         finally:
             self.evict("text_encoder")
 

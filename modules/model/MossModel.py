@@ -269,10 +269,12 @@ class MossModel(BaseModel):
                     if x is None:
                         continue
                     c, h, w = x.shape
-                    # duplicate along the temporal axis, then unfold into (h*w/patch^2, 3, 2, patch, patch)
+                    # duplicate along the temporal axis, then unfold the SPATIAL dims (2, 3) into
+                    # (num_patches, 3, 2, patch, patch); unfolding (1, 2) would hit the channel dim
+                    # and collapse everything into a single bogus image
                     xt = x.unsqueeze(1).repeat(1, 2, 1, 1)
                     patches = xt.unfold(2, patch, patch).unfold(3, patch, patch)
-                    patches = patches.contiguous().reshape(-1, 3, 2, patch, patch)
+                    patches = patches.permute(4, 5, 0, 1, 2, 3).reshape(-1, c, 2, patch, patch)
                     pixel_values = patches.to(device=train_device, dtype=torch.float32)
                     grid_thw = torch.tensor([[1, h // patch, w // patch]], device=train_device, dtype=torch.long)
                     outputs = model.get_image_features(pixel_values, grid_thw)
@@ -294,7 +296,9 @@ class MossModel(BaseModel):
                 # downsample: block-average over the full set of image vectors so every
                 # token carries the meaning of all images (a pure linear resample would
                 # only blend a local window and, at token_count=1, just two images)
-                stacked = F.adaptive_avg_pool1d(stacked.unsqueeze(0), output_size=token_count).squeeze(0)
+                stacked = F.adaptive_avg_pool1d(
+                    stacked.unsqueeze(0).transpose(1, 2), output_size=token_count
+                ).transpose(1, 2).squeeze(0)
             else:
                 # upsample: linearly blend between neighboring image vectors (linear mode
                 # resizes the last dimension, so move the image axis to the end)

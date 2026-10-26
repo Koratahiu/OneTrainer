@@ -15,6 +15,7 @@ from modules.modelSampler.BaseModelSampler import BaseModelSampler, ModelSampler
 from modules.modelSaver.BaseModelSaver import BaseModelSaver
 from modules.modelSetup.BaseModelSetup import BaseModelSetup
 from modules.trainer.BaseTrainer import BaseTrainer
+from modules.trainer.vision_init import VisionInitDataLoader
 from modules.util import create, huggingface_util, path_util
 from modules.util.async_tensor_exchange import AsyncTensorExchange
 from modules.util.bf16_stochastic_rounding import set_seed as bf16_stochastic_rounding_set_seed
@@ -156,6 +157,9 @@ class GenericTrainer(BaseTrainer):
         self.data_loader = self.create_data_loader(
             self.model, self.model_setup, self.model.train_progress
         )
+        # wraps the data loader so the Moss vision-based embedding init can run as a
+        # one-shot pre-scan of the first epoch (no-op for other models); see vision_init.py
+        self.data_loader = VisionInitDataLoader(self.data_loader)
         self.__setup_entropic_schedule()
 
         self.model_saver = self.create_model_saver()
@@ -714,6 +718,12 @@ class GenericTrainer(BaseTrainer):
                 else:
                     self.model_setup.setup_train_device(self.model, self.config)
                     self.data_loader.get_data_set().start_next_epoch()
+
+            # vision-based embedding init: one-shot pre-scan of the first epoch that collects
+            # each pending image-init embedding's training images and replaces its append tokens
+            # in place with the pooled vision-tower encoding. No-op on non-Moss models and on
+            # subsequent epochs (the wrapper tracks that it already ran).
+            self.data_loader.run_vision_init_scan(self.model, self.config, train_device)
 
             if self.config.debug_mode:
                 multi.warn_parameter_divergence(self.parameters, train_device)

@@ -1,4 +1,6 @@
+import hashlib
 import math
+import os
 from contextlib import nullcontext
 from random import Random
 
@@ -271,13 +273,13 @@ class MossModel(BaseModel):
         grid_thw = torch.tensor(grid_list, device=train_device, dtype=torch.long)
 
         model = self.text_encoder
-        model.materialize_only("text_encoder")
+        self.materialize_only("text_encoder")
         try:
             with torch.no_grad(), self.text_encoder_autocast_context:
                 outputs = model.get_image_features(pixel_values, grid_thw)
                 pooled_images = [feat.mean(dim=0) for feat in outputs.pooler_output]
         finally:
-            model.evict("text_encoder")
+            self.evict("text_encoder")
 
         stacked = torch.stack(pooled_images, dim=0)  # (num_images, hidden_dim)
         num_images = stacked.shape[0]
@@ -297,6 +299,57 @@ class MossModel(BaseModel):
                     stacked.unsqueeze(0).transpose(1, 2), size=token_count, mode='linear', align_corners=False
                 ).transpose(1, 2).squeeze(0)
         return stacked.to(device=train_device, dtype=train_dtype)
+
+    def encode_images_vision_pooled_cached(
+            self,
+            image_paths: list[str],
+            token_count: int,
+            train_device: torch.device,
+            train_dtype: torch.dtype,
+    ) -> Tensor | None:
+        """On-disk cache around encode_images_vision_pooled, mirroring encode_text_cached's
+        disk tier. The vision-tower encoding of a fixed image set is expensive (it
+        materializes the text encoder), so it is computed once and reused across runs: a
+        repeat call for the same image set loads the stored tensor instead of re-encoding.
+        The paths are canonicalized (sorted, deduplicated) so the key - and the
+        interpolated result - is independent of the order the training stream happened to
+        deliver them in, which is what makes a repeat run hit the disk cache."""
+        canonical_paths = tuple(sorted(set(image_paths)))
+        if not canonical_paths:
+            return None
+
+        disk_path = self.__vision_encoding_disk_path(canonical_paths, token_count)
+        if disk_path is not None and os.path.isfile(disk_path):
+            return torch.load(disk_path, map_location=train_device, weights_only=True).to(
+                device=train_device, dtype=train_dtype
+            )
+
+        encoding = self.encode_images_vision_pooled(
+            image_paths=list(canonical_paths),
+            token_count=token_count,
+            train_device=train_device,
+            train_dtype=train_dtype,
+        )
+        if encoding is None:
+            return None
+        if disk_path is not None:
+            os.makedirs(os.path.dirname(disk_path), exist_ok=True)
+            tmp_path = disk_path + ".tmp"
+            torch.save(encoding.to(dtype=torch.float32, device="cpu"), tmp_path)
+            os.replace(tmp_path, disk_path)
+        return encoding
+
+    def __vision_encoding_disk_key(self, canonical_paths: tuple[str, ...], token_count: int) -> str:
+        # ModelType + token_count + the canonical image set. train_device/train_dtype are
+        # transient and excluded; every input that changes the encoding is part of the key.
+        key_str = "\x00".join([self.model_type.name, str(token_count), "\n".join(canonical_paths)])
+        return hashlib.sha256(key_str.encode("utf-8")).hexdigest()
+
+    def __vision_encoding_disk_path(self, canonical_paths: tuple[str, ...], token_count: int) -> str | None:
+        # cache_dir/vision_encodings/<key>.pt; None when there is no cache_dir (memory only).
+        if self.train_config is None or not self.train_config.cache_dir:
+            return None
+        return os.path.join(self.train_config.cache_dir, "vision_encodings", f"{self.__vision_encoding_disk_key(canonical_paths, token_count)}.pt")
 
     def scale_latents(self, latents: Tensor) -> Tensor:
         # the FLUX.2 VAE emits 32-channel latents at 1/8 image scale, but the transformer

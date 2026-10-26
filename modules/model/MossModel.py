@@ -249,8 +249,6 @@ class MossModel(BaseModel):
                 with Image.open(path) as im:
                     im = im.convert('RGB')
                     w, h = im.size
-                    # keep the original resolution: only snap to the 32px grid the vision tower
-                    # requires (train-resolution cap as a VRAM safety net for very large sources)
                     new_w = max(multiple, min(max_px, int(round(w / multiple)) * multiple))
                     new_h = max(multiple, min(max_px, int(round(h / multiple)) * multiple))
                     im = im.resize((new_w, new_h))

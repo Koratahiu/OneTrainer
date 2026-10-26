@@ -88,7 +88,7 @@ class VisionInitDataLoader:
                     for i, caption in enumerate(captions)
                     if i < len(image_paths) and emb.placeholder in (caption or "")
                 )
-                if emb.image_init_target is None or len(emb.image_init_paths) >= emb.image_init_target:
+                if emb.image_init_target is not None and len(emb.image_init_paths) >= emb.image_init_target:
                     emb.image_init_pending = False
 
             # every pending embedding reached its target (or the epoch ran out below)

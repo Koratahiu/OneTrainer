@@ -70,5 +70,9 @@ class BaseEmbeddingWidgetView:
                               tooltip="The initial embedding text used when creating a new embedding")
         self.components.entry(bottom_frame, 0, 7, self.ui_state, "initial_embedding_text")
 
+        # vision init (Moss only)
+        if self._should_show_vision_init_toggle(controller):
+            self.components.switch(bottom_frame, 0, 8, self.ui_state, "init_from_images", text="vision init:", width=40)
+
     def configure_element(self):
         pass

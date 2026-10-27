@@ -356,6 +356,12 @@ class BaseTrainUIView(ABC):
                              tooltip="Output embeddings are calculated at the output of the text encoder, not the input. This can improve results for larger text encoders and lower VRAM usage.")
             self.components.switch(frame, 5, 1, ui_state, "embedding.is_output_embedding")
 
+        # vision init (Moss only): initialize the append tokens from the concept images
+        if self._should_show_vision_init_toggle():
+            self.components.label(frame, 6, 0, "Init from images",
+                                   tooltip="Initialize the embedding's append tokens from the concept images using the text encoder's vision tower, instead of from the initial embedding text.")
+            self.components.switch(frame, 6, 1, ui_state, "embedding.init_from_images")
+
     def build_tools_tab_content(self, frame, controller, ui_state):
         # dataset
         self.components.label(frame, 0, 0, "Dataset Tools",

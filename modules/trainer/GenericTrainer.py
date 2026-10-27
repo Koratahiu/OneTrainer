@@ -148,14 +148,14 @@ class GenericTrainer(BaseTrainer):
 
         self.model_setup.setup_optimizations(self.model, self.config)
         self.model_setup.setup_train_device(self.model, self.config)
-        self.model_setup.setup_model(self.model, self.config)
-        self.model.eval()
-
+        # create the data loader before setup_model so the embedding setup can read the concept images
         self.callbacks.on_update_status("creating the data loader/caching")
-
         self.data_loader = self.create_data_loader(
             self.model, self.model_setup, self.model.train_progress
         )
+        self.model_setup.setup_model(self.model, self.config)
+        self.model.eval()
+
         self.__setup_entropic_schedule()
 
         self.model_saver = self.create_model_saver()

@@ -268,10 +268,6 @@ class PySide6TrainView(BaseTrainUIView, QMainWindow, metaclass=QtABCMeta):
         model_type = self.controller.train_config.model_type
         return not (model_type.is_moss() or model_type.is_krea2())
 
-    def _should_show_vision_init_toggle(self) -> bool:
-        model_type = self.controller.train_config.model_type
-        return model_type.is_moss()
-
     def _configure_embedding_frame(self, frame):
         self.build_embedding_tab_content(frame, self.controller, self.ui_state)
         pyside6_components._pack_form(frame)

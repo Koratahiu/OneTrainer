@@ -1,11 +1,5 @@
 from abc import ABCMeta
 from random import Random
-import os
-import json
-import re
-import hashlib
-from pathlib import Path
-from PIL import Image
 
 import modules.util.multi_gpu_util as multi
 from modules.model.MossModel import MossModel, MossModelEmbedding
@@ -20,12 +14,10 @@ from modules.util.checkpointing_util import (
     enable_checkpointing_for_moss_encoder_layers,
 )
 from modules.util.config.TrainConfig import TrainConfig, TrainEmbeddingConfig
-from modules.util.config.ConceptConfig import ConceptConfig
 from modules.util.TrainProgress import TrainProgress
 
 import torch
 from torch import Tensor
-import torch.nn.functional as F
 
 
 class BaseMossSetup(
@@ -206,211 +198,6 @@ class BaseMossSetup(
 
         return result
 
-    def _create_append_token(
-            self,
-            model: MossModel,
-            config: TrainConfig,
-            embedding_config: TrainEmbeddingConfig,
-            hidden_dim: int,
-            train_dtype: torch.dtype,
-    ) -> Tensor:
-        # Pick the initialization strategy: vision-based (from the concept images) when enabled, else text-based.
-        if embedding_config.init_from_images:
-            return self._create_new_append_token_from_images(model, config, embedding_config, hidden_dim, train_dtype)
-        return self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
-
-    def _create_new_append_token_from_images(
-            self,
-            model: MossModel,
-            config: TrainConfig,
-            embedding_config: TrainEmbeddingConfig,
-            hidden_dim: int,
-            train_dtype: torch.dtype,
-    ) -> Tensor:
-        """Initialize the append tokens from the concept images, using the text encoder's vision tower.
-
-        Every enabled concept image whose caption contains the embedding's placeholder is run through the
-        vision encoder; the per-image visual features are resampled to the requested token count and averaged,
-        so the resulting tokens carry the aggregate appearance of the whole concept. The result is cached with
-        the same two-level (memory + disk) scheme as encode_text_cached, so the images are only encoded once.
-        """
-        # target resolution scale: the smallest component of the configured resolution string
-        res_numbers = [int(x) for x in re.split(r'\D', config.resolution) if x.strip() != '']
-        target_resolution = min(res_numbers) if res_numbers else 512
-        token_count = embedding_config.token_count or 1
-
-        image_entries = self._gather_embedding_images(config, embedding_config)
-        if not image_entries:
-            print(f"Vision init: no images found for placeholder {embedding_config.placeholder!r}; falling back to text init.")
-            return self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
-
-        if getattr(self, "_vision_feature_cache", None) is None:
-            self._vision_feature_cache = {}
-        cache_key = self.__vision_feature_cache_key(config, embedding_config, image_entries, target_resolution, token_count)
-        cached = self._vision_feature_cache.get(cache_key)
-        if cached is not None:
-            return cached.to(device=self.train_device, dtype=train_dtype).requires_grad_(True)
-
-        disk_path = self.__vision_feature_disk_path(config, cache_key)
-        if disk_path is not None and os.path.isfile(disk_path):
-            vector = torch.load(disk_path, map_location=self.train_device, weights_only=True)
-            vector = vector.to(device=self.train_device, dtype=train_dtype).requires_grad_(True)
-            self._vision_feature_cache[cache_key] = vector
-            return vector
-
-        processor = self.__get_image_processor(config)
-        if processor is None:
-            print(f"Vision init: image processor unavailable for placeholder {embedding_config.placeholder!r}; falling back to text init.")
-            return self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
-        model.materialize_only("text_encoder")
-        text_encoder_device = model.text_encoder.device
-        pooled_list = []
-        try:
-            for image_path, _caption in image_entries:
-                try:
-                    with Image.open(image_path) as pil:
-                        pil = pil.convert("RGB")
-                        inputs = processor(images=pil)
-                        pixel_values = inputs["pixel_values"].to(device=text_encoder_device)
-                        image_grid_thw = inputs["image_grid_thw"].to(device=text_encoder_device)
-                        with torch.no_grad():
-                            features = model.text_encoder.get_image_features(pixel_values, image_grid_thw)
-                        feat = features[0]  # (num_visual_tokens, out_hidden_size)
-                        pooled_list.append(self.__pool_to_token_count(feat, token_count))
-                except Exception as e:
-                    print(f"Vision init: failed to encode image {image_path}: {e}")
-        finally:
-            model.evict("text_encoder")
-
-        if not pooled_list:
-            print(f"Vision init: no images could be encoded for placeholder {embedding_config.placeholder!r}; falling back to text init.")
-            return self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
-
-        vector = torch.stack(pooled_list, dim=0).mean(dim=0).to(device=self.train_device, dtype=train_dtype).requires_grad_(True)
-        self._vision_feature_cache[cache_key] = vector
-        if disk_path is not None:
-            os.makedirs(os.path.dirname(disk_path), exist_ok=True)
-            tmp_path = disk_path + ".tmp"
-            torch.save(vector.detach(), tmp_path)
-            os.replace(tmp_path, disk_path)
-        return vector
-
-    def _gather_embedding_images(self, config: TrainConfig, embedding_config: TrainEmbeddingConfig) -> list[tuple[str, str]]:
-        """Collect (image_path, caption) for every enabled concept image whose caption contains the placeholder."""
-        from modules.util import path_util
-        image_exts = path_util.supported_image_extensions()
-        if config.concepts is None:
-            with open(config.concept_file_name, 'r') as f:
-                concepts = json.load(f)
-                for i in range(len(concepts)):
-                    concepts[i] = ConceptConfig.default_values().from_dict(concepts[i])
-                config.concepts = concepts
-        entries = []
-        for concept in config.concepts:
-            if not concept.enabled:
-                continue
-            concept_path = Path(concept.path)
-            if not concept_path.is_dir():
-                continue
-            if concept.include_subdirectories:
-                image_files = [p for p in concept_path.rglob("*") if p.is_file() and p.suffix.lower() in image_exts]
-            else:
-                image_files = [p for p in concept_path.iterdir() if p.is_file() and p.suffix.lower() in image_exts]
-            for image_file in image_files:
-                caption = self.__concept_image_caption(concept, image_file)
-                if embedding_config.placeholder and embedding_config.placeholder in caption:
-                    entries.append((str(image_file), caption))
-        return entries
-
-    def __concept_image_caption(self, concept, image_file: Path) -> str:
-        prompt_source = concept.text.prompt_source
-        if prompt_source == "filename":
-            return image_file.stem
-        if prompt_source == "concept":
-            prompt_path = concept.text.prompt_path
-            if prompt_path:
-                caption_file = Path(prompt_path) / (image_file.stem + ".txt")
-                if caption_file.is_file():
-                    return caption_file.read_text(encoding="utf-8").strip()
-            return image_file.stem
-        # "sample" (default): a .txt file next to the image
-        caption_file = image_file.with_suffix(".txt")
-        if caption_file.is_file():
-            return caption_file.read_text(encoding="utf-8").strip()
-        return image_file.stem
-
-    def __pool_to_token_count(self, feat: Tensor, token_count: int) -> Tensor:
-        """Resample (num_tokens, dim) visual features to exactly token_count tokens via linear interpolation.
-
-        Works for every case: token_count == 1 (mean), token_count > num_tokens (upsample), and
-        token_count < num_tokens (downsample). A single input token is broadcast rather than interpolated.
-        """
-        num_tokens, dim = feat.shape
-        if num_tokens == 1:
-            return feat.expand(token_count, dim).contiguous()
-        if num_tokens == token_count:
-            return feat
-        x = feat.unsqueeze(0).transpose(1, 2)  # (1, dim, num_tokens)
-        x = F.interpolate(x, size=(token_count,), mode="linear", align_corners=False)
-        return x.transpose(1, 2).squeeze(0)  # (token_count, dim)
-
-    def __vision_feature_cache_key(self, config: TrainConfig, embedding_config, image_entries, target_resolution, token_count) -> str:
-        image_sig = hashlib.sha256(
-            "".join(f"{p}|{c}\n" for p, c in sorted(image_entries)).encode("utf-8")
-        ).hexdigest()
-        payload = "\x00".join([
-            config.model_type.name,
-            embedding_config.placeholder,
-            str(target_resolution),
-            str(token_count),
-            image_sig,
-        ])
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-    def __vision_feature_disk_path(self, config: TrainConfig, cache_key: str) -> str | None:
-        if not config.cache_dir:
-            return None
-        return os.path.join(config.cache_dir, "vision_embeddings", f"{cache_key}.pt")
-
-    def __get_image_processor(self, config: TrainConfig):
-        if getattr(self, "_image_processor", None) is None:
-            from transformers import AutoImageProcessor
-            base_model = config.model_names().base_model
-            try:
-                self._image_processor = AutoImageProcessor.from_pretrained(base_model, subfolder="text_encoder")
-            except Exception as e:
-                print(f"Vision init: AutoImageProcessor failed for {base_model!r} ({e}); falling back to a Qwen2-VL image processor built from the text encoder vision config.")
-                self._image_processor = self.__build_qwen_image_processor(base_model)
-        return self._image_processor
-
-    def __build_qwen_image_processor(self, base_model: str):
-        """Build a Qwen2-VL image processor from the text encoder's vision config.
-
-        The MOSS-Image text encoder is a Qwen3.5-VL model, but the published checkpoint ships no
-        preprocessor_config.json, so AutoImageProcessor cannot load one. qwen3_5 registers
-        Qwen2VLImageProcessor in this transformers build, which shares the vision tower's
-        patch/merge geometry, so we construct one directly from the vision_config.
-        """
-        try:
-            vision = {}
-            cfg_path = os.path.join(base_model, "text_encoder", "config.json")
-            if os.path.isfile(cfg_path):
-                with open(cfg_path, "r") as f:
-                    vision = json.load(f).get("vision_config", {})
-            patch_size = vision.get("patch_size", 16)
-            temporal_patch_size = vision.get("temporal_patch_size", 2)
-            merge_size = vision.get("spatial_merge_size", vision.get("merge_size", 2))
-            from transformers.models.qwen2_vl.image_processing_qwen2_vl import Qwen2VLImageProcessor
-            return Qwen2VLImageProcessor(
-                patch_size=patch_size,
-                temporal_patch_size=temporal_patch_size,
-                merge_size=merge_size,
-                size={"shortest_edge": 65536, "longest_edge": 16777216},
-            )
-        except Exception as e:
-            print(f"Vision init: could not build a Qwen image processor ({e})")
-            return None
-
     def _setup_embeddings(
             self,
             model: MossModel,
@@ -425,7 +212,7 @@ class BaseMossSetup(
             token_count = embedding_config.token_count or 1
 
             if embedding_state is None:
-                append_token = self._create_append_token(model, config, embedding_config, hidden_dim, train_dtype)
+                append_token = self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
             else:
                 embedding_state = embedding_state.get("moss", None)
 
@@ -435,7 +222,7 @@ class BaseMossSetup(
                         device=self.train_device,
                     ).detach().requires_grad_(True)
                 else:
-                    append_token = self._create_append_token(model, config, embedding_config, hidden_dim, train_dtype)
+                    append_token = self._create_new_append_token(model, embedding_config, hidden_dim, train_dtype)
 
             embedding = MossModelEmbedding(
                 embedding_config.uuid,

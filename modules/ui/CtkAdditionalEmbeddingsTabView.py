@@ -31,10 +31,6 @@ class CtkEmbeddingWidgetView(BaseEmbeddingWidgetView, ctk.CTkFrame):
         model_type = controller.train_config.model_type
         return not (model_type.is_moss() or model_type.is_krea2())
 
-    def _should_show_vision_init_toggle(self, controller) -> bool:
-        model_type = controller.train_config.model_type
-        return model_type.is_moss()
-
     def __init__(self, master, element, i, open_command, remove_command, clone_command, save_command, controller):
         ctk.CTkFrame.__init__(self, master=master, corner_radius=10, bg_color="transparent")
         BaseEmbeddingWidgetView.__init__(self, ctk_components)

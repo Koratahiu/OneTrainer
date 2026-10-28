@@ -184,7 +184,7 @@ class BaseStableDiffusionXLSetup(
             deterministic: bool = False,
     ) -> dict:
         with model.autocast_context:
-            batch_seed = 0 if deterministic else train_progress.global_step * multi.world_size() + multi.rank()
+            batch_seed = 0 if deterministic else train_progress.global_step * multi.world_size() + multi.rank() + (config.seed or 0)
             generator = torch.Generator(device=config.train_device)
             generator.manual_seed(batch_seed)
             rand = Random(batch_seed)

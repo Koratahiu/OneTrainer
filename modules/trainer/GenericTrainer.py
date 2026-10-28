@@ -38,6 +38,9 @@ from modules.util.torch_util import torch_gc
 from modules.util.tqdm_util import tqdm
 from modules.util.TrainProgress import TrainProgress
 
+import numpy as np
+import random
+
 import torch
 from torch import Tensor, nn
 from torch.nn import Parameter
@@ -87,7 +90,21 @@ class GenericTrainer(BaseTrainer):
         self.one_step_trained = False
         self.grad_hook_handles = []
 
+    def __apply_seed(self):
+        if not self.config.seed:
+            return
+        seed = self.config.seed
+        # offset the seed per GPU rank so each process shuffles its data independently
+        if multi.is_enabled():
+            seed += multi.rank()
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        print(f"Setting random seed to {seed}")
+
     def start(self):
+        self.__apply_seed()
         if multi.is_master():
             self.__save_config_to_workspace()
 

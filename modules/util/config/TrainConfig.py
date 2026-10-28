@@ -517,6 +517,7 @@ class TrainConfig(BaseConfig):
     loss_scaler: LossScaler
     learning_rate_scaler: LearningRateScaler
     clip_grad_norm: float
+    seed: int | None
 
     #layer filter
     layer_filter: str  # comma-separated
@@ -1200,6 +1201,7 @@ class TrainConfig(BaseConfig):
         data.append(("loss_scaler", LossScaler.NONE, LossScaler, False))
         data.append(("learning_rate_scaler", LearningRateScaler.NONE, LearningRateScaler, False))
         data.append(("clip_grad_norm", 1.0, float, True))
+        data.append(("seed", 0, int, True))
 
         # noise
         data.append(("offset_noise_weight", 0.0, float, False))

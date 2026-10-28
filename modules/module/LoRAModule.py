@@ -764,10 +764,19 @@ class DoRAOFTModule(OFTModule):
     ||W_new|| = ||W_orig||.
     """
     dora_log_multiplier: nn.Parameter | None
+    _dropout: nn.Dropout
 
     def __init__(self, *args, **kwargs):
         self.dora_log_multiplier = None
         super().__init__(*args, **kwargs)
+        self._dropout = nn.Dropout(self.dropout_probability)
+        # Keep rotation clean so dropout is applied to the input 'x' (DoRA style)
+        if self.oft_R is not None:
+            self.oft_R.dropout.p = 0.0
+
+    @property
+    def dropout(self):
+        return self._dropout
 
     def initialize_weights(self):
         super().initialize_weights()
@@ -789,6 +798,11 @@ class DoRAOFTModule(OFTModule):
         assert self.dora_log_multiplier is not None
 
     def forward(self, x, *args, **kwargs):
+        self.check_initialized()
+
+        # Apply dropout to the input 'x' (DoRA style)
+        x = self.dropout(x)
+
         # Get the standard OFT output
         # result = W_orig @ R^T @ x + bias
         result = super().forward(x, *args, **kwargs)

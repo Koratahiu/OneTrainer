@@ -411,8 +411,17 @@ class OFTInspectorApp:
                 scale_factor = calc_res['scale_factor']
                 w_l2_eff = w_l2_raw / scale_factor
 
+                # DoRA Metrics: Mean, Min, Max
                 has_dora = base in dora_mults
-                dora_mult = torch.mean(torch.exp(dora_mults[base])).item() if has_dora else 1.0
+                if has_dora and dora_mults[base].numel() > 0:
+                    exp_dora = torch.exp(dora_mults[base])
+                    dora_mult = torch.mean(exp_dora).item()
+                    dora_min = torch.min(exp_dora).item()
+                    dora_max = torch.max(exp_dora).item()
+                else:
+                    dora_mult = 1.0
+                    dora_min = 1.0
+                    dora_max = 1.0
 
                 layers[base] = {
                     'blocks': r_blocks,
@@ -434,6 +443,8 @@ class OFTInspectorApp:
                     'is_matrix_exp': is_matrix_exp,
                     'has_dora': has_dora,
                     'dora_mult': dora_mult,
+                    'dora_min': dora_min,
+                    'dora_max': dora_max,
                 }
             return layers
         except Exception as e:
@@ -455,6 +466,12 @@ class OFTInspectorApp:
                 anchor = tk.W
             elif col in ["clip_status", "config", "dora_status"]:
                 width = 160
+                anchor = tk.CENTER
+            elif col in ["dora_1", "dora_2"]:
+                width = 175
+                anchor = tk.CENTER
+            elif col in ["dora_mult", "dora_min", "dora_max"]:
+                width = 95
                 anchor = tk.CENTER
             else:
                 width = 110
@@ -488,11 +505,16 @@ class OFTInspectorApp:
         norm_label = "Raw" if is_raw else "Eff"
 
         if mode == "single":
-            cols = ("layer", "blocks", "block_size", "scale_factor", "w_l2", "spec_max", "spec_mean", "clip_status", "rot_shift", "ortho_err", "dora_mult", "config")
+            cols = (
+                "layer", "blocks", "block_size", "scale_factor", "w_l2",
+                "spec_max", "spec_mean", "clip_status", "rot_shift", "ortho_err",
+                "dora_mult", "dora_min", "dora_max", "config"
+            )
             headers = [
                 "Layer Name", "Blocks (r)", "Block Size", "Scale Factor",
                 f"Weight L2 ({norm_label})", f"SpecNorm Max ({norm_label})", f"SpecNorm Mean ({norm_label})",
-                "Clip Status (σ)", "Rot Shift", "Ortho Err", "DoRA Mult", "Configuration"
+                "Clip Status (σ)", "Rot Shift", "Ortho Err",
+                "DoRA Mean", "DoRA Min", "DoRA Max", "Configuration"
             ]
             self.format_tree_columns(cols, headers)
 
@@ -539,6 +561,8 @@ class OFTInspectorApp:
                     "rot_shift": d['rot_shift'],
                     "ortho_err": d['ortho_err'],
                     "dora_mult": d['dora_mult'],
+                    "dora_min": d['dora_min'],
+                    "dora_max": d['dora_max'],
                     "has_dora": d['has_dora'],
                     "status": status,
                     "is_raw_view": is_raw
@@ -550,6 +574,8 @@ class OFTInspectorApp:
                     f"{disp_w:.4f}", f"{disp_spec_max:.4f}", f"{disp_spec_mean:.4f}",
                     status, f"{d['rot_shift']:.4f}", f"{d['ortho_err']:.2e}",
                     f"{d['dora_mult']:.4f}" if d['has_dora'] else "None",
+                    f"{d['dora_min']:.4f}" if d['has_dora'] else "None",
+                    f"{d['dora_max']:.4f}" if d['has_dora'] else "None",
                     cfg_display
                 ), tags=(tag,))
             
@@ -557,13 +583,16 @@ class OFTInspectorApp:
 
         else: # Compare Mode
             r1, r2 = self.cached_r1, self.cached_r2
-            cols = ("layer", "w_1", "w_2", "diff_w", "spec_1", "spec_2", "diff_spec", "rot_1", "rot_2", "diff_rot", "clip_status", "dora_status", "diff_dora")
+            cols = (
+                "layer", "w_1", "w_2", "diff_w", "spec_1", "spec_2", "diff_spec",
+                "rot_1", "rot_2", "diff_rot", "clip_status", "dora_1", "dora_2", "diff_dora"
+            )
             headers = [
                 "Layer Name",
                 f"OFT1 W({norm_label})", f"OFT2 W({norm_label})", "Δ W%",
                 f"OFT1 σ_Max({norm_label})", f"OFT2 σ_Max({norm_label})", "Δ σ_Max%",
                 "OFT1 RotShift", "OFT2 RotShift", "Δ RotShift%",
-                "Clip Status (1|2)", "DoRA(1|2)", "Δ DoRA%"
+                "Clip Status (1|2)", "OFT1 DoRA (Mean [Min,Max])", "OFT2 DoRA (Mean [Min,Max])", "Δ DoRA%"
             ]
             self.format_tree_columns(cols, headers)
 
@@ -572,8 +601,8 @@ class OFTInspectorApp:
             any_dora = False
 
             for k in all_keys:
-                d1 = r1.get(k, {'w_l2_raw':0, 'w_l2_eff':0, 'rot_shift':0, 'spec_max_raw':0, 'spec_max_eff':0, 'spec_mean_eff':0, 'clipped_blocks':0, 'clip_thresh':0.95, 'has_dora':False, 'dora_mult':1.0})
-                d2 = r2.get(k, {'w_l2_raw':0, 'w_l2_eff':0, 'rot_shift':0, 'spec_max_raw':0, 'spec_max_eff':0, 'spec_mean_eff':0, 'clipped_blocks':0, 'clip_thresh':0.95, 'has_dora':False, 'dora_mult':1.0})
+                d1 = r1.get(k, {'w_l2_raw':0, 'w_l2_eff':0, 'rot_shift':0, 'spec_max_raw':0, 'spec_max_eff':0, 'spec_mean_eff':0, 'clipped_blocks':0, 'clip_thresh':0.95, 'has_dora':False, 'dora_mult':1.0, 'dora_min':1.0, 'dora_max':1.0})
+                d2 = r2.get(k, {'w_l2_raw':0, 'w_l2_eff':0, 'rot_shift':0, 'spec_max_raw':0, 'spec_max_eff':0, 'spec_mean_eff':0, 'clipped_blocks':0, 'clip_thresh':0.95, 'has_dora':False, 'dora_mult':1.0, 'dora_min':1.0, 'dora_max':1.0})
                 
                 if d1['has_dora'] or d2['has_dora']:
                     any_dora = True
@@ -589,7 +618,9 @@ class OFTInspectorApp:
                 diff_dora = self.calc_pct_diff(d1['dora_mult'], d2['dora_mult'])
 
                 clip_str = f"{'Clipped' if d1['clipped_blocks']>0 else 'Safe'} | {'Clipped' if d2['clipped_blocks']>0 else 'Safe'}"
-                dora_str = f"{'Y' if d1['has_dora'] else 'N'} | {'Y' if d2['has_dora'] else 'N'}"
+                
+                dora1_disp = f"{d1['dora_mult']:.4f} [{d1['dora_min']:.3f}, {d1['dora_max']:.3f}]" if d1['has_dora'] else "None"
+                dora2_disp = f"{d2['dora_mult']:.4f} [{d2['dora_min']:.3f}, {d2['dora_max']:.3f}]" if d2['has_dora'] else "None"
 
                 tag = "safe"
                 if d1['spec_max_eff'] >= 1.0 or d2['spec_max_eff'] >= 1.0:
@@ -602,8 +633,12 @@ class OFTInspectorApp:
                     "w_1": w1, "w_2": w2, "diff_w": diff_w,
                     "spec_1": s1, "spec_2": s2, "diff_spec": diff_spec,
                     "rot_1": d1['rot_shift'], "rot_2": d2['rot_shift'], "diff_rot": diff_rot,
-                    "clip_status": clip_str, "dora_status": dora_str,
-                    "dora_1": d1['dora_mult'], "dora_2": d2['dora_mult'], "diff_dora": diff_dora,
+                    "clip_status": clip_str,
+                    "dora_1": d1['dora_mult'], "dora_2": d2['dora_mult'],
+                    "dora_min_1": d1['dora_min'], "dora_max_1": d1['dora_max'],
+                    "dora_min_2": d2['dora_min'], "dora_max_2": d2['dora_max'],
+                    "has_dora": d1['has_dora'] or d2['has_dora'],
+                    "diff_dora": diff_dora,
                     "is_raw_view": is_raw
                 }
                 self.results_data.append(row_dict)
@@ -613,7 +648,7 @@ class OFTInspectorApp:
                     f"{w1:.4f}", f"{w2:.4f}", f"{diff_w:+.2f}%",
                     f"{s1:.4f}", f"{s2:.4f}", f"{diff_spec:+.2f}%",
                     f"{d1['rot_shift']:.4f}", f"{d2['rot_shift']:.4f}", f"{diff_rot:+.2f}%",
-                    clip_str, dora_str, f"{diff_dora:+.2f}%"
+                    clip_str, dora1_disp, dora2_disp, f"{diff_dora:+.2f}%"
                 ), tags=(tag,))
 
                 g["w_1"] += w1; g["w_2"] += w2
@@ -644,9 +679,8 @@ class OFTInspectorApp:
                 with open(path, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow(self.current_columns)
-                    for row in self.results_data:
-                        # Extract table display values matching current columns
-                        writer.writerow([row.get(col, "") for col in self.tree["columns"]])
+                    for item in self.tree.get_children():
+                        writer.writerow(self.tree.item(item)['values'])
                 messagebox.showinfo("Success", "Data exported successfully!")
             except PermissionError:
                 messagebox.showerror("Error", "Permission Denied! Make sure the file isn't open in Excel or another program.")
@@ -708,19 +742,23 @@ class OFTInspectorApp:
             ax1.legend()
             self.add_tab(notebook, f1, f"Weight L2 ({norm_desc})")
 
-            # Tab 4: DoRA Multiplier (Conditional)
+            # Tab 4: DoRA Multiplier (Mean, Min, Max)
             if any(r.get("has_dora") for r in self.results_data):
                 f_dora = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
                 ax_dora = f_dora.add_subplot(111)
-                ax_dora.bar(x, [r["dora_mult"] for r in self.results_data], 0.5, label='DoRA Multiplier (Mean)', color='#ab47bc')
-                ax_dora.axhline(1.0, color='white', linestyle='--', linewidth=1)
-                ax_dora.set_title("DoRA Multiplier Magnitude per Layer (Baseline = 1.0)")
+                ax_dora.plot(x, [r["dora_mult"] for r in self.results_data], label='DoRA Mean', marker='o', color='#ab47bc', linewidth=1.5)
+                ax_dora.plot(x, [r["dora_max"] for r in self.results_data], label='DoRA Max', linestyle='--', color='#ff7043', linewidth=1.2)
+                ax_dora.plot(x, [r["dora_min"] for r in self.results_data], label='DoRA Min', linestyle=':', color='#29b6f6', linewidth=1.2)
+                ax_dora.fill_between(x, [r["dora_min"] for r in self.results_data], [r["dora_max"] for r in self.results_data], color='#ab47bc', alpha=0.18, label='DoRA Min-Max Range')
+                ax_dora.axhline(1.0, color='white', linestyle='--', linewidth=1, label='Baseline (1.0)')
+                ax_dora.set_title("DoRA Multiplier Magnitude (Mean, Min, Max) per Layer")
                 ax_dora.set_xticks(x); ax_dora.set_xticklabels(layers, rotation=90, fontsize=8)
+                ax_dora.grid(True, alpha=0.2)
                 ax_dora.legend()
                 self.add_tab(notebook, f_dora, "DoRA Multiplier")
 
         else: # Compare Mode
-            has_dora = any(r.get("dora_1", 1.0) != 1.0 or r.get("dora_2", 1.0) != 1.0 for r in self.results_data)
+            has_dora = any(r.get("has_dora") for r in self.results_data)
 
             # Tab 1: Spectral Norm Compare
             f_spec_c = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
@@ -758,16 +796,18 @@ class OFTInspectorApp:
             ax1.legend()
             self.add_tab(notebook, f1, f"Weight L2 ({norm_desc})")
 
-            # Tab 4: DoRA Compare (Conditional)
+            # Tab 4: DoRA Compare (Mean & Min-Max Range)
             if has_dora:
                 f_dora = plt.Figure(figsize=(10, 5), facecolor=self.bg_color)
                 ax_dora = f_dora.add_subplot(111)
-                ax_dora.plot(x, [r["dora_1"] for r in self.results_data], label='OFT 1 - DoRA Mult', alpha=0.8, color='#ab47bc')
-                ax_dora.plot(x, [r["dora_2"] for r in self.results_data], label='OFT 2 - DoRA Mult', alpha=0.8, color='#ff7043')
-                ax_dora.fill_between(x, [r["dora_1"] for r in self.results_data], [r["dora_2"] for r in self.results_data], color='gray', alpha=0.2)
+                ax_dora.plot(x, [r["dora_1"] for r in self.results_data], label='OFT 1 - DoRA Mean', alpha=0.9, color='#ab47bc', marker='o', linewidth=1.5)
+                ax_dora.fill_between(x, [r["dora_min_1"] for r in self.results_data], [r["dora_max_1"] for r in self.results_data], color='#ab47bc', alpha=0.15, label='OFT 1 Range (Min-Max)')
+                ax_dora.plot(x, [r["dora_2"] for r in self.results_data], label='OFT 2 - DoRA Mean', alpha=0.9, color='#ff7043', marker='s', linewidth=1.5)
+                ax_dora.fill_between(x, [r["dora_min_2"] for r in self.results_data], [r["dora_max_2"] for r in self.results_data], color='#ff7043', alpha=0.15, label='OFT 2 Range (Min-Max)')
                 ax_dora.axhline(1.0, color='white', linestyle='--', linewidth=1)
-                ax_dora.set_title("DoRA Multiplier Comparison")
+                ax_dora.set_title("DoRA Multiplier Comparison (Mean & Min-Max Range)")
                 ax_dora.set_xticks(x); ax_dora.set_xticklabels(layers, rotation=90, fontsize=8)
+                ax_dora.grid(True, alpha=0.2)
                 ax_dora.legend()
                 self.add_tab(notebook, f_dora, "DoRA Compare")
 

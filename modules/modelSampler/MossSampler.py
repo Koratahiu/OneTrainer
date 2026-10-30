@@ -64,11 +64,10 @@ class MossSampler(BaseModelSampler):
             num_latent_channels = 128
 
             # prepare prompt
-            self.model.materialize_only("text_encoder")
-
             batch_size = 2 if cfg_scale > 1.0 else 1
             texts = [prompt, negative_prompt] if cfg_scale > 1.0 else [prompt]
-            combined_prompt_embedding, text_attention_mask = self.model.encode_text(
+            combined_prompt_embedding, text_attention_mask = self.model.encode_text_cached(
+                "text_encoder",
                 text=texts,
                 batch_size=batch_size,
                 train_device=self.train_device,
@@ -127,6 +126,17 @@ class MossSampler(BaseModelSampler):
                 file_type=FileType.IMAGE,
                 data=image[0],
             )
+
+    def prepare_text_encoding(self, sample_config: SampleConfig):
+        batch_size = 2 if sample_config.cfg_scale > 1.0 else 1
+        texts = [sample_config.prompt, sample_config.negative_prompt] if batch_size == 2 else [sample_config.prompt]
+        self.model.encode_text_cached(
+            "text_encoder",
+            text=texts,
+            batch_size=batch_size,
+            train_device=self.train_device,
+            caption_texts=texts,
+        )
 
     def sample(
             self,

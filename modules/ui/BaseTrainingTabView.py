@@ -740,6 +740,7 @@ class BaseTrainingTabView(ABC):
                               supports_generalized_offset_noise: bool = False,
                               supports_dynamic_timestep_shifting: bool = False):
         frame = self.components.section_frame(master, row)
+
         row = 0
 
         # offset noise weight
@@ -755,6 +756,18 @@ class BaseTrainingTabView(ABC):
                                   wraplength=130)
             self.components.switch(frame, row, 1, ui_state, "generalized_offset_noise")
             row += 1
+
+        # CIOP noise weight
+        self.components.label(frame, row, 0, "I/O Noise Weight",
+                         tooltip="Applies Coordinated Input-Output Perturbation (CIOP) to each training step.")
+        self.components.entry(frame, row, 1, ui_state, "ciop_noise_weight")
+        row += 1
+
+        # CIOP noise probability
+        self.components.label(frame, row, 0, "I/O Noise Probability",
+                         tooltip="The probability of I/O perturbation noise for each training step")
+        self.components.entry(frame, row, 1, ui_state, "ciop_p")
+        row += 1
 
         # perturbation noise weight
         self.components.label(frame, row, 0, "Perturbation Noise Weight",

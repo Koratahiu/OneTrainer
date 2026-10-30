@@ -163,6 +163,7 @@ class ModelSetupNoiseMixin(metaclass=ABCMeta):
             return [_perturb_cep(emb) for emb in embedding]
         else:
             return _perturb_cep(embedding)
+
     def _apply_ciop(
             self,
             noisy_latent: Tensor,

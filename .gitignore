@@ -53,3 +53,4 @@ training_presets/*
 
 # #.json is an exception (from the exception). This file stores the ui state from a previous run.
 training_presets/\#.json
+training_presets/

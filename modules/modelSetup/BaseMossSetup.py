@@ -74,6 +74,11 @@ class BaseMossSetup(
                 caption_texts=batch.get('prompt'),
             )
 
+            if config.cep_gamma > 0 and not deterministic:
+                text_encoder_output = self._apply_conditional_embedding_perturbation(
+                    text_encoder_output, config.cep_gamma, generator
+                )
+
             latent_image = batch['latent_image']
             scaled_latent_image = model.scale_latents(latent_image)
             latent_noise = self._create_noise(scaled_latent_image, config, generator)

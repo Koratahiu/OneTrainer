@@ -96,9 +96,9 @@ class BaseLoraTabView:
             self.components.entry(master, 5, 1, ui_state, "oft_clipped_norm")
 
             # Matrix Exponential Mode
-            self.components.label(master, 6, 0, "Matrix Exponential Mode",
+            self.components.label(master, 4, 3, "Matrix Exponential Mode",
                                   tooltip="Changes OFT parameterization from Cayley transform to Matrix Exponential. Provides a uniform effective learning rates across all rotation angles, avoiding Cayley metric distortion. While Maintaining the same overhead.")
-            self.components.switch(master, 6, 0, ui_state, "oft_matrix_exp")
+            self.components.switch(master, 4, 4, ui_state, "oft_matrix_exp")
 
             # Dropout Percentage
             self.components.label(master, 2, 0, "Dropout Probability",

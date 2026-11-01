@@ -90,6 +90,9 @@ cuda = [
   "onnxruntime-gpu==1.23.2",
   "triton-windows==3.7.0.post26; sys_platform == 'win32'",
 
+  # attention (CuTe DSL wheels are Linux-only)
+  "kohakufa-cute[cuda] @ git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git@49e4ecd75e8af18813657afba6b9f5d82848335d ; sys_platform == 'linux'",
+
   # optimizers
   "bitsandbytes==0.50.2",
 ]

@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
 
 from modules.model.BaseModel import BaseModel
+from modules.model.util import kohakufa_cute
 from modules.util.config.TrainConfig import TrainConfig, TrainEmbeddingConfig, TrainModelPartConfig
 from modules.util.dtype_util import create_autocast_context, disable_fp16_autocast_context
 from modules.util.enum.AttentionMechanism import AttentionMechanism
@@ -295,5 +296,11 @@ class BaseModelSetup(
                 component.set_attention_backend("_native_cudnn")
             case AttentionMechanism.FLEX:
                 component.set_attention_backend("flex")
+            case AttentionMechanism.KOHAKUFA:
+                if not kohakufa_cute.is_available():
+                    raise NotImplementedError(
+                        "KohakuFA-CuTe attention is not supported in this environment"
+                    )
+                component.set_attention_backend("kohakufa_cute")
             case _:
                 raise NotImplementedError(f"attention mechanism {str(attn)} not implemented")

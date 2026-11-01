@@ -22,6 +22,7 @@ class TrainingTabController:
             ("flash-attn", AttentionMechanism.FLASH),
             ("torch cuDNN", AttentionMechanism.CUDNN),
             ("torch FlexAttention", AttentionMechanism.FLEX),
+            ("KohakuFA-CuTe", AttentionMechanism.KOHAKUFA),
         ]
 
     def get_layer_presets(self) -> dict:

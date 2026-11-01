@@ -45,6 +45,7 @@ class DataLoaderMgdsMixin(metaclass=ABCMeta):
             definition,
             batch_size=config.batch_size, #local batch size
             state=PipelineState(config.dataloader_threads),
+            seed=config.seed if config.seed is not None else -1,
             initial_epoch=train_progress.epoch,
             initial_epoch_sample=train_progress.epoch_sample,
         )

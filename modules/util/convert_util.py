@@ -10,7 +10,7 @@ import parse
 # hanging straight off the module, or two segments (a param segment + this tail). Grouped by that arity, NOT
 # by value type -- scaled_oft is a marker buffer, not a weight, but it is two-segment (oft_R.scaled_oft) so
 # it lives with .weight.
-SINGLE_SEGMENT_SUFFIXES = (".alpha", ".dora_scale", ".dora_log_multiplier")
+SINGLE_SEGMENT_SUFFIXES = (".alpha", ".dora_scale", ".dora_log_multiplier", ".clipped_oft", ".matrix_exp_oft")
 DOUBLE_SEGMENT_SUFFIXES = (".weight", ".scaled_oft")
 
 # The single-segment adapter factors (LoHa hada_*, LoKr lokr_*) serialize as one bare param segment with no

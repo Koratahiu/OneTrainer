@@ -1127,7 +1127,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda
       - pypi: git+https://github.com/KellerJordan/Muon.git?rev=f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd#f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd
       - pypi: git+https://github.com/Nerogar/mgds.git?rev=3a6994ad18a490acc4f3876658167525b7d88da7#3a6994ad18a490acc4f3876658167525b7d88da7
-      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=49e4ecd75e8af18813657afba6b9f5d82848335d#49e4ecd75e8af18813657afba6b9f5d82848335d
+      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1#5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1
       - pypi: git+https://github.com/huggingface/diffusers.git?rev=1ffa4236a48af8d1d2eaeed6c84027af19acfc39#1ffa4236a48af8d1d2eaeed6c84027af19acfc39
       - pypi: https://download-r2.pytorch.org/whl/triton-3.9.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://download.pytorch.org/whl/colorama-0.4.6-py2.py3-none-any.whl
@@ -1802,7 +1802,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda
       - pypi: git+https://github.com/KellerJordan/Muon.git?rev=f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd#f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd
       - pypi: git+https://github.com/Nerogar/mgds.git?rev=3a6994ad18a490acc4f3876658167525b7d88da7#3a6994ad18a490acc4f3876658167525b7d88da7
-      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=49e4ecd75e8af18813657afba6b9f5d82848335d#49e4ecd75e8af18813657afba6b9f5d82848335d
+      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1#5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1
       - pypi: git+https://github.com/huggingface/diffusers.git?rev=1ffa4236a48af8d1d2eaeed6c84027af19acfc39#1ffa4236a48af8d1d2eaeed6c84027af19acfc39
       - pypi: https://download-r2.pytorch.org/whl/cu134/torch-2.15.0%2Bcu134-cp313-cp313-manylinux_2_28_x86_64.whl
       - pypi: https://download-r2.pytorch.org/whl/cu134/torchvision-0.29.2%2Bcu134-py3-none-manylinux_2_28_x86_64.whl
@@ -8245,9 +8245,9 @@ packages:
   name: mgds
   version: 0.1.dev168+g3a6994ad1
   requires_python: '>=3.10'
-- pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=49e4ecd75e8af18813657afba6b9f5d82848335d#49e4ecd75e8af18813657afba6b9f5d82848335d
+- pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1#5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1
   name: kohakufa-cute
-  version: 0.2.0
+  version: 0.4.0
   requires_dist:
   - torch>=2.11
   - packaging>=23
@@ -8255,6 +8255,18 @@ packages:
   - apache-tvm-ffi>=0.1.14,<0.2 ; extra == 'cuda'
   - ninja>=1.11 ; extra == 'cuda'
   - triton>=3.6,<4 ; extra == 'cuda'
+  - torch==2.15.0 ; extra == 'sm80-fa4'
+  - nvidia-cutlass-dsl==4.8.1 ; extra == 'sm80-fa4'
+  - apache-tvm-ffi==0.1.15.post0 ; extra == 'sm80-fa4'
+  - quack-kernels==0.6.5 ; extra == 'sm80-fa4'
+  - torch-c-dlpack-ext==0.1.5 ; extra == 'sm80-fa4'
+  - flash-attn-4[cu13] @ git+https://github.com/Dao-AILab/flash-attention.git@4616f5116d33e3ba3cbb71d582caffcfcb49649c#subdirectory=flash_attn/cute ; extra == 'sm80-fa4'
+  - torch==2.15.0 ; extra == 'hopper-fa4'
+  - nvidia-cutlass-dsl==4.8.1 ; extra == 'hopper-fa4'
+  - apache-tvm-ffi==0.1.15.post0 ; extra == 'hopper-fa4'
+  - quack-kernels==0.6.5 ; extra == 'hopper-fa4'
+  - torch-c-dlpack-ext==0.1.5 ; extra == 'hopper-fa4'
+  - flash-attn-4[cu13] @ git+https://github.com/Dao-AILab/flash-attention.git@4616f5116d33e3ba3cbb71d582caffcfcb49649c#subdirectory=flash_attn/cute ; extra == 'hopper-fa4'
   - build ; extra == 'dev'
   - black==24.8.0 ; extra == 'dev'
   - isort==5.13.2 ; extra == 'dev'

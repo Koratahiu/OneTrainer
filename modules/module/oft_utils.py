@@ -2,6 +2,7 @@ import math
 
 import torch
 import torch.nn as nn
+from torch.nn import Dropout
 
 
 class MultiplicativeDropoutLayer(nn.Module):
@@ -72,7 +73,7 @@ class OFTRotationModule(nn.Module):
         rows, cols = torch.triu_indices(block_size, block_size, 1)
         self.register_buffer("rows", rows, persistent=False)
         self.register_buffer("cols", cols, persistent=False)
-        self.dropout = MultiplicativeDropoutLayer(p=dropout_probability)
+        self.dropout = Dropout(0)
         # Set via set_merge_rot_source: the LinearQuantRot module whose O^T input rotation is
         # folded into this module's R, so its quantized module can skip applying O^T itself.
         # Held in a list so nn.Module.__setattr__ does not register it as a submodule.
@@ -181,12 +182,11 @@ class OFTRotationModule(nn.Module):
         orig_shape = x.shape
 
         scaling_factor = 2 * math.sqrt(self.block_size - 1) if self.oft_scaled else 1
-        effective_weight = self.weight / scaling_factor
+        effective_weight = self.dropout(self.weight) / scaling_factor
 
         orth_rotate = self._cayley_batch(
             effective_weight, self.block_size, self.use_cayley_neumann, self.use_matrix_exp
         )
-        orth_rotate = self.dropout(orth_rotate)
 
         rank = self.in_features // self.block_size
         if self.block_share:

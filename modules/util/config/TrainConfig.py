@@ -668,6 +668,7 @@ class TrainConfig(BaseConfig):
     oft_block_share: bool
     dora_oft: bool
     oft_scaled: bool
+    oft_cans: bool
     oft_clipped_norm: float | None
     oft_matrix_exp: bool
 
@@ -1458,6 +1459,7 @@ class TrainConfig(BaseConfig):
         data.append(("oft_block_share", False, bool, False))
         data.append(("dora_oft", False, bool, False))
         data.append(("oft_scaled", False, bool, False))
+        data.append(("oft_cans", False, bool, False))
         data.append(("oft_clipped_norm", None, float, True))
         data.append(("oft_matrix_exp", False, bool, False))
 

@@ -48,6 +48,7 @@ class OFTRotationModule(nn.Module):
         oft_scaled=False,
         use_cayley_neumann=True,
         use_matrix_exp=False,
+        oft_cans=False,
         dropout_probability=0.0,
         oft_clipped_norm: float | None = None,
     ):
@@ -65,6 +66,9 @@ class OFTRotationModule(nn.Module):
             self.register_buffer("scaled_oft", torch.tensor(True))
         self.oft_scaled = oft_scaled
         self.use_cayley_neumann = use_cayley_neumann
+        self.oft_cans = oft_cans
+        if oft_cans:
+            self.register_buffer("cans_oft", torch.tensor(True))
         if use_matrix_exp:
             # Register a persistent buffer to indicate this module uses Matrix exp. mode.
             self.register_buffer("matrix_exp_oft", torch.tensor(True))
@@ -110,6 +114,55 @@ class OFTRotationModule(nn.Module):
         vec = matrix[:, self.rows, self.cols]
         return vec
 
+    def _cans_newton_schulz_iteration(
+        self,
+        G: torch.Tensor,
+        steps: int = 7,
+        eps: float = 1e-7,
+    ) -> torch.Tensor:
+        """
+        Chebyshev-Optimized Newton-Schulz iteration with a dynamically computed Chebyshev lower bound.
+        Optimized for G = I + Q (where Q is skew-symmetric).
+        """
+        original_dtype = G.dtype
+        X = G
+
+        # Max row sum is guaranteed to be >= the maximum singular value of X.
+        g_norm = X.abs().sum(dim=-1, keepdim=True).amax(dim=-2, keepdim=True).clamp_min(eps).detach()
+        X = X / g_norm
+
+        # Since min_singular_value(I + Q) >= 1, the min_singular_value of normalized X
+        # is guaranteed to be >= 1 / ||G||_F.
+        lower_bound = (1.0 / g_norm)
+        upper_bound = 1
+
+        for _ in range(steps):
+            lb, ub = lower_bound, upper_bound
+            lb_ub = lb * ub
+            e_sq = (lb**2 + lb_ub + ub**2) / 3.0
+            K = 2.0 * e_sq**1.5
+            L = lb_ub * (lb + ub)
+            denom = K + L
+            alpha = 6.0 / denom
+            c1 = alpha * e_sq
+            c3 = -alpha / 3.0
+
+            A = torch.bmm(X, X.mT)
+            X = c1 * X + c3 * torch.bmm(A, X)
+
+            # Dynamically update bounds for the next step
+            eps_val = (K - L) / denom
+
+            # bmm acts as an opaque boundary, forcing Inductor to
+            # materialize eps_val and severing the exponential AST tree.
+            # Shape is (B, 1, 1), so ones_like acts as an identity.
+            eps_val = torch.bmm(eps_val, torch.ones_like(eps_val))
+
+            lower_bound = 1 - eps_val
+            upper_bound = 1 + eps_val
+
+        return X.to(original_dtype)
+
     @torch.no_grad()
     def _spectral_norm(self, Q_skew):
         u = self.u_state.unsqueeze(-1).to(Q_skew.dtype)
@@ -130,7 +183,7 @@ class OFTRotationModule(nn.Module):
         return next_v, next_u
 
     def _cayley_batch(
-        self, Q: torch.Tensor, block_size: int, use_cayley_neumann: bool = True, use_matrix_exp: bool = False
+        self, Q: torch.Tensor, block_size: int, use_cayley_neumann: bool = True, use_matrix_exp: bool = False, oft_cans: bool = False,
     ) -> torch.Tensor:
         """
         Perform the Cayley parametrization on a batch of skew-symmetric matrices.
@@ -150,7 +203,34 @@ class OFTRotationModule(nn.Module):
             max_norm = self.oft_clipped_norm
             Q_skew = Q_skew * (max_norm / torch.clamp(sigma, min=max_norm))
 
-        if use_matrix_exp:
+        if oft_cans:
+            eye_matrix = torch.eye(block_size, device=Q_skew.device, dtype=Q_skew.dtype).expand(b, -1, -1)
+            if use_matrix_exp:
+                # Scale down by 2^3 = 8
+                k = 3
+                Q_scaled = Q_skew / (2.0 ** k)
+                Q_squared = torch.bmm(Q_scaled, Q_scaled)
+                c = 4.0 - 2.0 * math.sqrt(2.0)
+                d = 6.0 - 4.0 * math.sqrt(2.0)
+                inner = eye_matrix * 2.0 + Q_scaled * c + Q_squared * d
+                G = eye_matrix + Q_scaled * 2.0 + torch.bmm(Q_squared, inner)
+                # Repeated squaring (restores 2*theta geodesic)
+                for _ in range(k):
+                    G = torch.bmm(G, G)
+                # Empirically, 3 steps for BF16 (hits precision floor), 5 for FP32 (hits 1e-7)
+                steps = 3 if G.dtype == torch.bfloat16 else 5
+                R = self._cans_newton_schulz_iteration(G=G, steps=steps)
+            else:
+                # Cayley path
+                Q_squared = torch.bmm(Q_skew, Q_skew)
+                # Compute G = (I + Q)^2 = I + 2Q + Q^2
+                # Squaring the matrix doubles the rotation range and matches Cayley (I + 2Q).
+                G = eye_matrix + 2 * Q_skew + Q_squared
+                # Empirically, BF16 requires 5 steps to converge to ortho error ~1e-2 (its limit)
+                # While FP32 takes 7 steps to converge to ortho error ~1e-6
+                steps = 5 if G.dtype == torch.bfloat16 else 7
+                R = self._cans_newton_schulz_iteration(G=G, steps=steps)
+        elif use_matrix_exp:
             eye_matrix = torch.eye(block_size, device=Q.device, dtype=Q.dtype).repeat(b, 1, 1)
             Q_squared = torch.bmm(Q_skew, Q_skew)
             c = 4.0 - 2.0 * math.sqrt(2.0)
@@ -165,11 +245,7 @@ class OFTRotationModule(nn.Module):
             # R = I + 2Q + Q^2 * inner
             R = eye_matrix + Q_skew * 2.0 + torch.bmm(Q_squared, inner)
         else:
-            id_mat = (
-                torch.eye(Q_skew.shape[-1], device=Q_skew.device)
-                .unsqueeze(0)
-                .expand(b, Q_skew.shape[-1], Q_skew.shape[-1])
-            )
+            id_mat = (torch.eye(block_size).unsqueeze(0).expand(self.r, block_size, block_size))
             R = torch.linalg.solve(id_mat + Q_skew, id_mat - Q_skew, left=False)
 
         return R.to(previous_dtype)
@@ -185,7 +261,7 @@ class OFTRotationModule(nn.Module):
         effective_weight = self.dropout(self.weight) / scaling_factor
 
         orth_rotate = self._cayley_batch(
-            effective_weight, self.block_size, self.use_cayley_neumann, self.use_matrix_exp
+            effective_weight, self.block_size, self.use_cayley_neumann, self.use_matrix_exp,self.oft_cans
         )
 
         rank = self.in_features // self.block_size

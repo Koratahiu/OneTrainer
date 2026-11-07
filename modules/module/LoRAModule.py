@@ -613,10 +613,11 @@ class OFTModule(PeftBase):
     oft_scaled: bool
     oft_clipped_norm: float | None
     use_matrix_exp: bool
+    oft_cans: bool
     dropout_probability: float
     adjustment_info: tuple[int, int] | None # for reporting
 
-    def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, block_share: bool, oft_scaled: bool, oft_clipped_norm: float | None = None, use_matrix_exp: bool = False, **kwargs):
+    def __init__(self, prefix: str, orig_module: nn.Module | None, oft_block_size: int, block_share: bool, oft_scaled: bool, oft_clipped_norm: float | None = None, use_matrix_exp: bool = False, oft_cans: bool = False, **kwargs):
         super().__init__(prefix, orig_module)
         self.oft_block_size = oft_block_size
         self.rank = 0
@@ -624,6 +625,7 @@ class OFTModule(PeftBase):
         self.oft_scaled = oft_scaled
         self.oft_clipped_norm = oft_clipped_norm
         self.use_matrix_exp = use_matrix_exp
+        self.oft_cans = oft_cans
         self.dropout_probability = kwargs.pop('dropout_probability', 0.0)
         self.oft_R = None
         self.quant_rot_forward: Any | None = None
@@ -693,6 +695,7 @@ class OFTModule(PeftBase):
             oft_scaled=self.oft_scaled,
             use_cayley_neumann=True,
             use_matrix_exp=self.use_matrix_exp,
+            oft_cans=self.oft_cans,
             dropout_probability=self.dropout_probability,
             oft_clipped_norm=self.oft_clipped_norm,
         )
@@ -725,7 +728,7 @@ class OFTModule(PeftBase):
 
         # For Conv2d, we must rotate the weights, not the input, to preserve spatial information.
         orth_rotate = self.oft_R._cayley_batch(
-            effective_weight, self.oft_R.block_size, self.oft_R.use_cayley_neumann, self.oft_R.use_matrix_exp
+            effective_weight, self.oft_R.block_size, self.oft_R.use_cayley_neumann, self.oft_R.use_matrix_exp, self.oft_R.oft_cans
         )
         orth_rotate = self.oft_R.dropout(orth_rotate)
 
@@ -1015,7 +1018,8 @@ class LoRAModuleWrapper:
                 config.oft_block_share,
                 config.oft_scaled,
                 config.oft_clipped_norm,
-                config.oft_matrix_exp
+                config.oft_matrix_exp,
+                config.oft_cans
             ]
             self.additional_kwargs = {
                 'dropout_probability': config.dropout_probability,

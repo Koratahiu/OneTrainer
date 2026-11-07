@@ -100,6 +100,11 @@ class BaseLoraTabView:
                                   tooltip="Changes OFT parameterization from Cayley transform to Matrix Exponential. Provides a uniform effective learning rates across all rotation angles, avoiding Cayley metric distortion. While Maintaining the same overhead.")
             self.components.switch(master, 4, 4, ui_state, "oft_matrix_exp")
 
+            # CANS OFT
+            self.components.label(master, 5, 3, "Accelerated Newton-Schulz",
+                             tooltip="Replaces OFT approximation with Chebyshev-Optimized Newton-Schulz (CANS) to improve orthogonalization stability and reduce error without the high computational cost of the exact solver. This is compatible with Matrix Exponential Mode.")
+            self.components.switch(master, 5, 4, ui_state, "oft_cans")
+
             # Dropout Percentage
             self.components.label(master, 2, 0, "Dropout Probability",
                                   tooltip="Dropout probability. This percentage of the rotated adapter nodes that will be randomly restored to the base model initial statue. Helps with overfitting. 0 disables, 1 maximum.")

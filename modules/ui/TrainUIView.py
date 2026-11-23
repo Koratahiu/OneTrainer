@@ -348,9 +348,6 @@ class TrainView(BaseTrainUIView, QMainWindow, metaclass=QtABCMeta):
         self.sampling_tab = None
         self.additional_embeddings_tab = None
 
-    def _should_show_output_embedding_toggle(self) -> bool:
-        return not self.controller.train_config.model_type.is_moss()
-
         central = QWidget(self)
         self.setCentralWidget(central)
         central_lo = QGridLayout(central)
@@ -382,6 +379,9 @@ class TrainView(BaseTrainUIView, QMainWindow, metaclass=QtABCMeta):
         )
         self.window_settings = MainWindowSettings(self, self.tabview, self._tab_widgets, QSettings())
         self.window_settings.restore()
+
+    def _should_show_output_embedding_toggle(self) -> bool:
+        return not self.controller.train_config.model_type.is_moss()
 
     def closeEvent(self, event):
         if self.controller.training_thread is not None and self.controller.training_thread.is_alive():

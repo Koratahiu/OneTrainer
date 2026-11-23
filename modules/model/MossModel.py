@@ -167,9 +167,11 @@ class MossModel(BaseModel):
                 # single last hidden state → (B, T, H)
                 text_encoder_output = outputs.hidden_states[-1]
 
-        text_encoder_output, = self._apply_caption_dropout(
+        # only the encoder output is swapped (not the attention mask, which is derived
+        # from the real captions' lengths)
+        text_encoder_output = self._apply_caption_dropout(
             "text_encoder", text_encoder_dropout_mask, text_encoder_output,
-        )
+        )[0]
 
         # real tokens are a contiguous prefix (padding sits at the end), so gather the
         # unmasked tokens per sample, append append tokens, then re-pad the batch
@@ -212,6 +214,28 @@ class MossModel(BaseModel):
         bool_attention_mask = torch.arange(max_seq_length, device=train_device).unsqueeze(0) < seq_lengths.unsqueeze(1)
 
         return (text_encoder_output, bool_attention_mask)
+
+    def _apply_caption_dropout(self, encoder: str, mask: Tensor | None, *outputs):
+        if self._recording_unconditional:
+            self._unconditional_outputs[encoder] = _map_tensors(outputs, lambda t: t.detach().cpu())
+            return outputs
+        if mask is None:
+            return outputs
+        # MOSS pads to the batch max instead of a fixed length, so the cached empty
+        # output rarely matches the batch's sequence length - align it (padding
+        # positions are masked out by the attention mask, so the fill values don't matter)
+        return tuple(
+            _pad_unconditional(value, empty, mask)
+            for value, empty in zip(outputs, self._unconditional_outputs[encoder], strict=True)
+        )
+
+    @staticmethod
+    def _pad_unconditional(value: Tensor, unconditional: Tensor, mask: Tensor) -> Tensor:
+        unconditional = unconditional[..., :value.shape[-1]]
+        if unconditional.shape[-1] < value.shape[-1]:
+            unconditional = F.pad(unconditional, (0, value.shape[-1] - unconditional.shape[-1]))
+        unconditional = unconditional.to(device=value.device, dtype=value.dtype)
+        return torch.where(mask.to(value.device).view(-1, 1, 1), unconditional, value)
 
     def scale_latents(self, latents: Tensor) -> Tensor:
         # the FLUX.2 VAE emits 32-channel latents at 1/8 image scale, but the transformer

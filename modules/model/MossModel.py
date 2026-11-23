@@ -48,6 +48,8 @@ class MossModelEmbedding(BaseModelEmbedding):
 
 
 class MossModel(BaseModel):
+    supports_caption_dropout = True
+
     # base model data
     tokenizer: Qwen2Tokenizer | None
     noise_scheduler: MOSSImageScheduler | None
@@ -145,6 +147,11 @@ class MossModel(BaseModel):
             tokens = tokens_out.input_ids.to(self.text_encoder.device)
             tokens_mask = tokens_out.attention_mask.to(self.text_encoder.device)
 
+        text_encoder_dropout_mask, tokens, tokens_mask = self._prepare_caption_dropout(
+            "text_encoder", text_encoder_dropout_probability, rand, text_encoder_output,
+            tokens, tokens_mask,
+        )
+
         if text_encoder_output is not None:
             text_encoder_output = text_encoder_output.to(device=train_device)
         if tokens_mask is not None:
@@ -160,8 +167,9 @@ class MossModel(BaseModel):
                 # single last hidden state → (B, T, H)
                 text_encoder_output = outputs.hidden_states[-1]
 
-        if text_encoder_dropout_probability is not None and text_encoder_dropout_probability > 0.0:
-            raise NotImplementedError
+        text_encoder_output, = self._apply_caption_dropout(
+            "text_encoder", text_encoder_dropout_mask, text_encoder_output,
+        )
 
         # real tokens are a contiguous prefix (padding sits at the end), so gather the
         # unmasked tokens per sample, append append tokens, then re-pad the batch

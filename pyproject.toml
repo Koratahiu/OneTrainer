@@ -85,7 +85,7 @@ cpu = [
 
 cuda = [
   # attention (CuTe DSL wheels are Linux-only)
-  "kohakufa-cute[cuda] @ git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git@5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1 ; sys_platform == 'linux'",
+  "kohakufa-cute[cuda] @ git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git@d323ccabe736e9efc464b389bd193ff3a3db8b24 ; sys_platform == 'linux'",
 
   "bitsandbytes==0.50.2",
   "triton; sys_platform == 'linux'",  # PyTorch constrains the version for each CUDA backend.

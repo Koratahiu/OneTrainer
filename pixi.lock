@@ -1105,7 +1105,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda
       - pypi: git+https://github.com/KellerJordan/Muon.git?rev=f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd#f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd
       - pypi: git+https://github.com/Nerogar/mgds.git?rev=a5f35a3e292c200a3d13111f7c74362422df1a24#a5f35a3e292c200a3d13111f7c74362422df1a24
-      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1#5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1
+      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=d323ccabe736e9efc464b389bd193ff3a3db8b24#d323ccabe736e9efc464b389bd193ff3a3db8b24
       - pypi: git+https://github.com/huggingface/diffusers.git?rev=578c9b2c6636ab2424a0e56186268b83623656b2#578c9b2c6636ab2424a0e56186268b83623656b2
       - pypi: https://download-r2.pytorch.org/whl/cu126/torch-2.14.1%2Bcu126-cp313-cp313-manylinux_2_28_x86_64.whl
       - pypi: https://download-r2.pytorch.org/whl/cu126/torchvision-0.29.1%2Bcu126-cp313-cp313-manylinux_2_28_x86_64.whl
@@ -1764,7 +1764,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda
       - pypi: git+https://github.com/KellerJordan/Muon.git?rev=f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd#f90a42b28e00b8d9d2d05865fe90d9f39abcbcbd
       - pypi: git+https://github.com/Nerogar/mgds.git?rev=a5f35a3e292c200a3d13111f7c74362422df1a24#a5f35a3e292c200a3d13111f7c74362422df1a24
-      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1#5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1
+      - pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=d323ccabe736e9efc464b389bd193ff3a3db8b24#d323ccabe736e9efc464b389bd193ff3a3db8b24
       - pypi: git+https://github.com/huggingface/diffusers.git?rev=578c9b2c6636ab2424a0e56186268b83623656b2#578c9b2c6636ab2424a0e56186268b83623656b2
       - pypi: https://download-r2.pytorch.org/whl/cu134/torch-2.15.0%2Bcu134-cp313-cp313-manylinux_2_28_x86_64.whl
       - pypi: https://download-r2.pytorch.org/whl/cu134/torchvision-0.29.2%2Bcu134-py3-none-manylinux_2_28_x86_64.whl
@@ -8576,9 +8576,9 @@ packages:
   - transformers>=5.5
   - diffusers>=0.38
   requires_python: '>=3.11.1'
-- pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1#5726a8cf72300f1ad5c225e8881ea1d1d1a2b8b1
+- pypi: git+https://github.com/SimpleTuner-io/KohakuFA-CuTe.git?rev=d323ccabe736e9efc464b389bd193ff3a3db8b24#d323ccabe736e9efc464b389bd193ff3a3db8b24
   name: kohakufa-cute
-  version: 0.4.0
+  version: 0.5.0
   requires_dist:
   - torch>=2.11
   - packaging>=23
@@ -8601,6 +8601,7 @@ packages:
   - build ; extra == 'dev'
   - black==24.8.0 ; extra == 'dev'
   - isort==5.13.2 ; extra == 'dev'
+  - numpy ; extra == 'dev'
   - matplotlib>=3.8 ; extra == 'plots'
   requires_python: '>=3.12'
 - pypi: git+https://github.com/huggingface/diffusers.git?rev=578c9b2c6636ab2424a0e56186268b83623656b2#578c9b2c6636ab2424a0e56186268b83623656b2

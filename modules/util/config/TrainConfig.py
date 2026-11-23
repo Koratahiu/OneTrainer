@@ -42,6 +42,16 @@ class RemovedOptimizerError(ValueError):
     pass
 
 
+def parse_validation_timesteps(value: str) -> list[int]:
+    try:
+        timesteps = [int(part.strip()) for part in value.split(',')]
+    except ValueError as e:
+        raise ValueError("Enter comma-separated whole numbers between 0 and 999 (for example, 100,499,900)") from e
+    if any(timestep < 0 or timestep > 999 for timestep in timesteps):
+        raise ValueError("Validation timesteps must be between 0 and 999")
+    return list(dict.fromkeys(timesteps))
+
+
 TIMESTAMP_SUFFIX_RE = re.compile(r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})$")
 
 
@@ -94,7 +104,6 @@ class TrainOptimizerConfig(BaseConfig):
     beta2: float
     beta3: float
     bias_correction: bool
-    block_wise: bool
     capturable: bool
     centered: bool
     clip_threshold: float
@@ -120,7 +129,6 @@ class TrainOptimizerConfig(BaseConfig):
     momentum: float
     nesterov: bool
     optim_bits: int
-    percentile_clipping: int
     r: float
     relative_step: bool
     safeguard_warmup: bool
@@ -253,7 +261,6 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("beta2", None, float, True))
         data.append(("beta3", None, float, True))
         data.append(("bias_correction", False, bool, False))
-        data.append(("block_wise", False, bool, False))
         data.append(("capturable", False, bool, False))
         data.append(("centered", False, bool, False))
         data.append(("clip_threshold", None, float, True))
@@ -279,7 +286,6 @@ class TrainOptimizerConfig(BaseConfig):
         data.append(("momentum", None, float, True))
         data.append(("nesterov", False, bool, False))
         data.append(("optim_bits", None, int, True))
-        data.append(("percentile_clipping", None, int, True))
         data.append(("r", None, float, True))
         data.append(("relative_step", False, bool, False))
         data.append(("safeguard_warmup", False, bool, False))
@@ -493,8 +499,12 @@ class TrainConfig(BaseConfig):
     tensorboard_always_on: bool
     tensorboard_port: str
     validation: bool
+    validation_timesteps: str
+    validation_report_per_concept: bool
     validate_after: float
     validate_after_unit: TimeUnit
+    early_stopping_patience: int
+    early_stopping_min_delta: float | None
     continue_last_backup: bool
     prevent_overwrites: bool
     auto_correct_input: bool
@@ -526,6 +536,7 @@ class TrainConfig(BaseConfig):
     aspect_ratio_bucketing: bool
     latent_caching: bool
     clear_cache_before_training: bool
+    skip_corrupt_images: bool
 
     # training settings
     learning_rate_scheduler: LearningRateScheduler
@@ -1135,6 +1146,9 @@ class TrainConfig(BaseConfig):
         else:
             return self.additional_embeddings
 
+    def parse_validation_timesteps(self) -> list[int]:
+        return parse_validation_timesteps(self.validation_timesteps)
+
     def get_timestamped_run_name(self) -> str:
         """Name a saved artifact by its save time without duplicating the default run timestamp."""
         timestamp = get_string_timestamp()
@@ -1234,8 +1248,12 @@ class TrainConfig(BaseConfig):
         data.append(("tensorboard_always_on", False, bool, False))
         data.append(("tensorboard_port", 6006, int, False))
         data.append(("validation", False, bool, False))
+        data.append(("validation_timesteps", "499", str, False))
+        data.append(("validation_report_per_concept", False, bool, False))
         data.append(("validate_after", 1, int, False))
         data.append(("validate_after_unit", TimeUnit.EPOCH, TimeUnit, False))
+        data.append(("early_stopping_patience", 0, int, False))
+        data.append(("early_stopping_min_delta", None, float, True))
         data.append(("continue_last_backup", False, bool, False))
         data.append(("prevent_overwrites", False, bool, False))
         data.append(("auto_correct_input", True, bool, False))
@@ -1267,6 +1285,7 @@ class TrainConfig(BaseConfig):
         data.append(("aspect_ratio_bucketing", True, bool, False))
         data.append(("latent_caching", True, bool, False))
         data.append(("clear_cache_before_training", True, bool, False))
+        data.append(("skip_corrupt_images", True, bool, False))
 
         # training settings
         data.append(("learning_rate_scheduler", LearningRateScheduler.CONSTANT, LearningRateScheduler, False))

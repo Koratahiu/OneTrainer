@@ -6,6 +6,7 @@ from collections.abc import Callable
 from contextlib import nullcontext
 from uuid import uuid4
 
+from modules.model.util.ModelCaptionDropoutMixin import ModelCaptionDropoutMixin
 from modules.module.EMAModule import EMAModuleWrapper
 from modules.module.LoRAModule import LoRAModuleWrapper
 from modules.util.config.TrainConfig import TrainConfig
@@ -100,7 +101,7 @@ class BaseModelEmbedding:
         return self.vector.to(device=device, dtype=dtype)
 
 
-class BaseModel(metaclass=ABCMeta):
+class BaseModel(ModelCaptionDropoutMixin, metaclass=ABCMeta):
     model_type: ModelType
     parameters: NamedParameterGroupCollection | None
     optimizer: Optimizer | None

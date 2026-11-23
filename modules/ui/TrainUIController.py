@@ -6,12 +6,14 @@ import threading
 import time
 import traceback
 import webbrowser
+from functools import cached_property
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import scripts.generate_debug_report
-from modules.ui.BaseTrainUIView import BaseTrainUIView
 from modules.ui.CaptionUIController import CaptionUIController
 from modules.ui.ConvertModelUIController import ConvertModelUIController
+from modules.ui.GeneralTabController import get_multi_gpu_availability
 from modules.ui.SampleWindowController import SampleWindowController
 from modules.ui.VideoToolUIController import VideoToolUIController
 from modules.util import create
@@ -28,6 +30,9 @@ import torch
 
 from huggingface_hub import parse_hf_uri
 from huggingface_hub.errors import GatedRepoError
+
+if TYPE_CHECKING:
+    from modules.ui.TrainUIView import BaseTrainUIView
 
 
 class TrainUIController:
@@ -46,6 +51,14 @@ class TrainUIController:
         # the currently open sample window, or None. Tracked so a second click doesn't spawn a
         # second (non-modal) window - the sample tool isn't designed to run two instances at once.
         self.sample_window = None
+        self.queue_controller = None
+
+    @cached_property
+    def _local_gpu_count(self) -> int | None:
+        try:
+            return torch.cuda.device_count()
+        except Exception:
+            return None
 
     def on_update_train_progress(self, train_progress: TrainProgress, max_step: int, max_epoch: int):
         # capture session start on first progress update
@@ -108,7 +121,10 @@ class TrainUIController:
 
         if self.train_config.tensorboard_expose:
             tensorboard_args.append("--bind_all")
+        else:
+            tensorboard_args.append("--host=localhost")
 
+        # discard the child's banner and notices; the UI already shows the tensorboard URL.
         try:
             self.always_on_tensorboard_subprocess = TensorboardProcess(tensorboard_args)
         except Exception:
@@ -158,6 +174,13 @@ class TrainUIController:
 
     def open_video_tool(self, parent, view_cls):
         return VideoToolUIController().create_window(parent, view_cls)
+
+    def open_queue_tool(self, parent, view_cls):
+        from modules.ui.QueueTrainingUIController import QueueTrainingUIController
+        if self.queue_controller is None:
+            self.queue_controller = QueueTrainingUIController(self.train_config)
+        self.queue_controller.train_config = self.train_config
+        return self.queue_controller.create_window(parent, view_cls)
 
     def open_convert_model_tool(self, parent, view_cls):
         return ConvertModelUIController(
@@ -308,6 +331,10 @@ class TrainUIController:
     def start_training(self):
         if self.training_thread is None:
             errors = flush_and_validate_all()
+            if self.train_config.multi_gpu:
+                available, reason = get_multi_gpu_availability(self._local_gpu_count, self.train_config.cloud.enabled)
+                if not available:
+                    errors.append(f"Multi-GPU: {reason}")
             if errors:
                 self.view.show_validation_errors(errors)
                 return

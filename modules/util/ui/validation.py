@@ -4,7 +4,6 @@ import os
 import re
 import sys
 from abc import ABC, abstractmethod
-from collections import deque
 from collections.abc import Callable
 from pathlib import PurePath
 from typing import TYPE_CHECKING
@@ -17,8 +16,6 @@ if TYPE_CHECKING:
     from modules.util.ui.UIState import BaseUIState
 
 
-DEBOUNCE_TYPING_MS = 250
-UNDO_DEBOUNCE_MS = 500
 ERROR_BORDER_COLOR = "#dc3545"
 _MAX_DISPLAY_CHARS = 5
 
@@ -129,40 +126,6 @@ def validate_path(
     return None
 
 
-DEFAULT_MAX_UNDO = 20
-
-
-class UndoHistory:
-    def __init__(self, max_size: int = DEFAULT_MAX_UNDO):
-        self._stack: deque[str] = deque(maxlen=max_size)
-        self._redo_stack: list[str] = []
-
-    def push(self, value: str):
-        if self._stack and self._stack[-1] == value:
-            return
-        self._stack.append(value)
-        self._redo_stack.clear()
-
-    def undo(self, current: str) -> str | None:
-        if not self._stack:
-            return None
-        top = self._stack[-1]
-        if top == current and len(self._stack) > 1:
-            self._redo_stack.append(self._stack.pop())
-            return self._stack[-1]
-        elif top != current:
-            self._redo_stack.append(current)
-            return top
-        return None
-
-    def redo(self) -> str | None:
-        if not self._redo_stack:
-            return None
-        value = self._redo_stack.pop()
-        self._stack.append(value)
-        return value
-
-
 class BaseFieldValidator(ABC):
     def __init__(
         self,
@@ -170,12 +133,14 @@ class BaseFieldValidator(ABC):
         var_name: str,
         extra_validate: Callable[[str], str | None] | None = None,
         required: bool = False,
+        allow_empty: bool = False,
     ):
         self.ui_state = ui_state
         self.var_name = var_name
         self.display_name = var_name
         self._extra_validate = extra_validate
         self._required = required
+        self._allow_empty = allow_empty
         self._bound = False
 
     @abstractmethod
@@ -188,6 +153,10 @@ class BaseFieldValidator(ABC):
 
     @abstractmethod
     def flush(self) -> str | None:
+        pass
+
+    @abstractmethod
+    def is_enabled(self) -> bool:
         pass
 
     def _get_var_safe(self, name: str):
@@ -209,7 +178,7 @@ class BaseFieldValidator(ABC):
             if nullable:
                 return None
             if declared_type is str:
-                if default_val == "":
+                if default_val == "" or self._allow_empty:
                     return None
                 return "Value required"
             return None
@@ -254,24 +223,9 @@ _active_validators: set[BaseFieldValidator] = set()
 def flush_and_validate_all() -> list[str]:
     invalid: list[str] = []
     for v in sorted(_active_validators, key=lambda v: v.var_name == "run_name"):
+        if not v.is_enabled():
+            continue
         error = v.flush()
         if error is not None:
             invalid.append(f"{v.display_name}: {error}")
     return invalid
-
-
-def _validate_path_field(ui_state: BaseUIState, io_type: PathIOType, value: str) -> str | None:
-    try:
-        prevent_var = ui_state.get_var("prevent_overwrites")
-    except (KeyError, AttributeError):
-        prevent_var = None
-    try:
-        format_var = ui_state.get_var("output_model_format")
-    except (KeyError, AttributeError):
-        format_var = None
-    return validate_path(
-        value,
-        io_type=io_type,
-        prevent_overwrites=prevent_var.get() if prevent_var is not None else False,
-        output_format=format_var.get() if format_var is not None else None,
-    )

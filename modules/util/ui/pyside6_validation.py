@@ -45,8 +45,9 @@ class PySide6FieldValidator(BaseFieldValidator):
         var_name: str,
         extra_validate: Callable[[str], str | None] | None = None,
         required: bool = False,
+        allow_empty: bool = False,
     ):
-        super().__init__(ui_state, var_name, extra_validate, required)
+        super().__init__(ui_state, var_name, extra_validate, required, allow_empty)
         self.component = component
         self.var = var
         self._original_style = component.styleSheet()
@@ -178,6 +179,9 @@ class PySide6FieldValidator(BaseFieldValidator):
     def revalidate(self, *_args) -> None:
         if self._bound:
             self._validate_and_style(self.component.text())
+
+    def is_enabled(self) -> bool:
+        return self.component.isEnabled()
 
     def flush(self) -> str | None:
         self._debounce.stop()

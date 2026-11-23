@@ -3,7 +3,7 @@
 set -e
 
 # Detect absolute path to the directory where "lib.include.sh" resides.
-export SCRIPT_DIR="$(cd --"$(dirname -- "${BASH_SOURCE[0]}")/../.." &>/dev/null && pwd)"
+export SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &>/dev/null && pwd)"
 
 # Guard against including the library multiple times.
 readonly SCRIPT_DIR
@@ -22,9 +22,10 @@ cd -- "${SCRIPT_DIR}"
 # since their script shadows "conda" as a shell-function instead of a binary!
 export OT_CONDA_CMD="${OT_CONDA_CMD:-${CONDA_EXE:-conda}}"
 export OT_CONDA_ENV="${OT_CONDA_ENV:-conda_env}"
+export OT_CONDA_USE_PYTHON_VERSION="${OT_CONDA_USE_PYTHON_VERSION:-3.13}"
 export OT_PYTHON_CMD="${OT_PYTHON_CMD:-python}"
 export OT_PYTHON_VENV="${OT_PYTHON_VENV:-venv}"
-export OT_PREFER_VENV="${OT_PREFER_VENV:-false}"
+export OT_PREFER_VENV="${OT_PREFER_VENV:-true}"
 export OT_LAZY_UPDATES="${OT_LAZY_UPDATES:-false}"
 export OT_CUDA_LOWMEM_MODE="${OT_CUDA_LOWMEM_MODE:-false}"
 export OT_PLATFORM_REQUIREMENTS="${OT_PLATFORM_REQUIREMENTS:-detect}"
@@ -32,9 +33,8 @@ export OT_SCRIPT_DEBUG="${OT_SCRIPT_DEBUG:-false}"
 
 # Internal environment variables.
 # NOTE: Version check supports "3", "3.1" and "3.1.5" specifier formats.
-export OT_PYTHON_VERSION_MINIMUM="3.10"
-export OT_PYTHON_VERSION_TOO_HIGH="3.14"
-export OT_CONDA_USE_PYTHON_VERSION="3.13"
+export OT_PYTHON_VERSION_MINIMUM="3.12.0"
+export OT_PYTHON_VERSION_TOO_HIGH="3.15"
 export OT_MUST_INSTALL_REQUIREMENTS="false"
 export OT_UPDATE_METADATA_FILE="${SCRIPT_DIR}/update.var"
 export OT_HOST_OS="$(uname -s)"
@@ -234,28 +234,15 @@ function has_conda_global_env {
 function create_conda_env {
     print "Creating Conda environment in \"${OT_CONDA_ENV}\"..."
 
-    # IMPORTANT: The ".*" suffix tells Conda to install the latest bugfix/patch
-    # release of the desired Python version. For example, if we specify "3.12.*",
-    # then it will pick the latest patch release, such as "3.12.5". It also works
-    # correctly if we specify an EXACT patch release ourselves, such as "3.10.14.*",
-    # or if we only specify a major version, such as "3.*" (gets the latest release).
-    declare -a install_args=()
-    install_args+=("python==${OT_CONDA_USE_PYTHON_VERSION}.*")
-
-    # IMPORTANT: We MUST use "conda-forge" and EXPLICITLY switch to the version
-    # of Tk that has libXft support on Linux, otherwise the GUI will have broken
-    # fonts, inability to render Unicode, and no antialiasing! Doesn't affect Macs.
-    # SEE: https://github.com/conda-forge/tk-feedstock/pull/40#issuecomment-2381409555
-    # SEE: https://anaconda.org/conda-forge/tk/files (only Linux has "xft" variant).
-    if [[ "${OT_HOST_OS}" == "Linux" ]]; then
-        install_args+=("tk[build=xft_*]")
-    fi
+    # A minor version selects its latest patch. A full version selects that release.
+    local python_version="${OT_CONDA_USE_PYTHON_VERSION%.\*}"
+    local python_spec="python==${python_version}.*,>=${OT_PYTHON_VERSION_MINIMUM},<${OT_PYTHON_VERSION_TOO_HIGH},!=3.14.1"
 
     # NOTE: We install with strict channel priority and an explicit channel list,
     # which ensures that package names which exist in "conda-forge" will never
     # fall back to the "defaults" channel if "conda-forge" lacks the required
     # version. Protects against mismatched packages built with different settings.
-    run_conda create -y --prefix "${OT_CONDA_ENV}" --override-channels --strict-channel-priority --channel "conda-forge" "${install_args[@]}"
+    run_conda create -y --prefix "${OT_CONDA_ENV}" --override-channels --strict-channel-priority --channel "conda-forge" "${python_spec}"
     export OT_MUST_INSTALL_REQUIREMENTS="true"
 
     # Show a warning if the user has the legacy "ot" environment on their system.
@@ -321,6 +308,33 @@ function run_pip_in_active_env {
     fi
 }
 
+# Chooses between the CUDA 13 (default) and CUDA 12.6 (legacy) requirements,
+# based on whether the NVIDIA driver is new enough to support CUDA 13.
+# NOTE: If nvidia-smi tells us nothing (missing, or its header doesn't have a
+# "CUDA Version" line), we keep the CUDA 13 default.
+function get_cuda_requirements_path {
+    local default_reqs="requirements-cuda.txt"
+    local legacy_reqs="requirements-cuda-legacy.txt"
+
+    # Locate nvidia-smi, including WSL's out-of-PATH copy.
+    local smi="nvidia-smi"
+    if ! can_exec "${smi}"; then
+        smi="/usr/lib/wsl/lib/nvidia-smi"
+        can_exec "${smi}" || { echo "${default_reqs}"; return; }
+    fi
+
+    # Max CUDA version the driver supports, parsed from the nvidia-smi header
+    # (e.g. "CUDA Version: 13.0"). Below major version 13 means too old.
+    local driver_cuda="$("${smi}" 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -n1)"
+    if [[ -n "${driver_cuda}" ]] && (( ${driver_cuda%%.*} < 13 )); then
+        print_warning "Your NVIDIA driver only supports up to CUDA ${driver_cuda}, so OneTrainer will install the legacy CUDA 12.6 build of PyTorch. Updating your NVIDIA driver is recommended to use the faster CUDA 13 build."
+        echo "${legacy_reqs}"
+        return
+    fi
+
+    echo "${default_reqs}"
+}
+
 # Determines which requirements.txt file we need to install.
 function get_platform_requirements_path {
     # NOTE: The user can override our platform detection via the environment.
@@ -336,7 +350,7 @@ function get_platform_requirements_path {
             #  "nvcc": CUDA SDK compiler. Not included in the drivers.
             #  "/usr/lib/wsl/lib/nvidia-smi": WSL's NVIDIA path (isn't in $PATH).
             # SEE: https://docs.nvidia.com/cuda/wsl-user-guide/
-            platform_reqs="requirements-cuda.txt"
+            platform_reqs="$(get_cuda_requirements_path)"
         elif [[ -e "/dev/kfd" ]]; then
             # AMD graphics.
             platform_reqs="requirements-rocm.txt"
@@ -361,8 +375,8 @@ function install_requirements_in_active_env {
     # when running in existing environments. It ensures that all libraries will
     # be upgraded to the same versions as a fresh reinstall of requirements.txt.
     print "Installing requirements in active environment..."
-    run_pip_in_active_env install --upgrade --upgrade-strategy eager pip setuptools==81.0.0
-    run_pip_in_active_env install --upgrade --upgrade-strategy eager -r requirements-global.txt -r "$(get_platform_requirements_path)"
+    run_pip_in_active_env install --upgrade --upgrade-strategy eager pip
+    run_pip_in_active_env install --upgrade --upgrade-strategy eager -r "$(get_platform_requirements_path)"
     export OT_MUST_INSTALL_REQUIREMENTS="false"
 
     # Write update-check metadata to disk if user has requested "lazy updates",
